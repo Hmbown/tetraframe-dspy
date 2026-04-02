@@ -1,10 +1,10 @@
 # TetraFrame
 
-A DSPy reasoning package that generates four independent positions from a single question and transforms them into useful outputs.
+A DSPy pipeline that splits a question into four independent positions (tetralemma), then synthesizes them into a single output.
 
 ## What is a tetralemma?
 
-A tetralemma — from the Sanskrit catuṣkoṭi — is a four-corner logical structure developed in Buddhist logic (notably Nāgārjuna's Madhyamaka school, ~2nd century CE). Where standard binary reasoning gives you two options —
+A tetralemma (Sanskrit: catuṣkoṭi) is a four-cornered logical structure from Buddhist logic, developed most fully by Nāgārjuna (~2nd century CE). Where binary reasoning gives you two options —
 
 ```
 A or not-A
@@ -16,13 +16,13 @@ A or not-A
 P · not-P · Both · Neither
 ```
 
-Binary framing creates anchoring bias: you state a thesis, react against it, and land on a compromise that inherits the weaknesses of both sides. A tetralemma avoids this by forcing independent exploration of all four corners before any synthesis.
+Binary framing tends to collapse into compromise — state a thesis, react against it, split the difference. A tetralemma sidesteps this by exploring all four corners independently before any synthesis happens.
 
 TetraFrame enforces this structurally:
 
 - **P** and **not-P** are generated in isolation from each other
-- **Both** must be two distinct, basis-typed positions — not a mushy middle ground
-- **Neither** must identify why the original framing is wrong and propose a replacement predicate
+- **Both** must produce two distinct positions that hold P and not-P simultaneously — not a compromise
+- **Neither** must reject the original framing and propose a replacement predicate
 - No corner can see the other corners until the cartography stage
 
 ## The pipeline
@@ -31,18 +31,18 @@ TetraFrame enforces this structurally:
 Seed ─▶ Predicate ─▶ Four Corners ─▶ Harden ─▶ Cartograph ─▶ Arbitrate ─▶ Transform ─▶ Domain Adapt ─▶ Verify
 ```
 
-TetraFrame runs 9 stages in sequence:
+Nine stages, run in sequence:
 
 | # | Stage | Does |
 |---|-------|------|
-| 1 | Seed Distill | Extracts stakes, constraints, unknowns, and hidden assumptions from your input |
+| 1 | Seed Distill | Extracts stakes, constraints, unknowns, and hidden assumptions from the input |
 | 2 | Predicate Selection | Picks the operational predicate the four corners will reason about |
 | 3 | Four-Corner Generation | Generates P, not-P, Both, Neither — each in complete isolation |
 | 4 | Hardening | Strengthens each corner, flags "Both" that are actually compromises |
 | 5 | Cartography | Maps overlaps, contradictions, and collapse signals between corners |
 | 6 | Arbitration | Scores corners for rigor, detects near-duplicates and contamination |
-| 7 | Transform | Synthesizes a non-averaging output from all four corners |
-| 8 | Domain Adapt | Adapts the result into a domain-specific format (code, writing, plan, etc.) |
+| 7 | Transform | Synthesizes an output from all four corners without averaging them |
+| 8 | Domain Adapt | Reshapes the result into a domain-specific format (code, writing, plan, etc.) |
 | 9 | Verify | Final quality checks against compromise language and fake novelty |
 
 ## Install
@@ -98,7 +98,7 @@ model:
 | Codex | `configs/codex_cli.yaml` | `codex` | Same limitations |
 | OpenCode | `configs/opencode_cli.yaml` | `opencode` | Same limitations |
 
-CLI backends run as subprocesses. They're slower and the proxy returns warnings when requested parameters can't be enforced.
+CLI backends run as subprocesses — slower, and the proxy warns when requested parameters can't be enforced.
 
 ### Setting API keys
 
@@ -110,7 +110,7 @@ export OPENROUTER_API_KEY="sk-or-..."
 
 ### Auto-discovery
 
-TetraFrame can find backends automatically without a config file:
+TetraFrame can find backends automatically without a config file.
 
 ```bash
 venv/bin/tetraframe discover        # show available tools
@@ -140,7 +140,7 @@ result.to_json("runs/latest/run.json")
 
 ## Proxy
 
-`tetraframe-proxy` exposes any configured backend behind an OpenAI-compatible HTTP API:
+`tetraframe-proxy` exposes any configured backend as an OpenAI-compatible HTTP API.
 
 ```bash
 venv/bin/tetraframe-proxy --config configs/claude_code_cli.yaml
@@ -181,7 +181,7 @@ venv/bin/tetraframe compile \
 
 ## Traces
 
-Each run writes a JSONL trace at `runs/traces/<run_id>.jsonl`. Each row includes stage name, latency, backend info, and input/output digests.
+Each run writes a JSONL trace to `runs/traces/<run_id>.jsonl`. Rows include stage name, latency, backend info, and input/output digests.
 
 ```python
 import json
