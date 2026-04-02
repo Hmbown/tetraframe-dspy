@@ -44,3 +44,4 @@ coverage.xml
 # Temp files
 run_with_env.sh
 texput.log
+*.log
