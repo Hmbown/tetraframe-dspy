@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tetraframe-dspy"
+version = "0.1.0"
+description = "Tetralemmatic reasoning framework in DSPy style"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "dspy>=2.6.0",
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+proxy = ["fastapi>=0.100", "uvicorn>=0.27", "httpx>=0.25"]
+test = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+dev = ["dspy>=2.6.0", "pytest>=8.0", "pytest-asyncio>=0.24", "httpx>=0.25", "fastapi>=0.100", "uvicorn>=0.27"]
+
+[project.scripts]
+tetraframe = "tetraframe.cli:app"
+tetraframe-proxy = "tetraframe.proxy.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

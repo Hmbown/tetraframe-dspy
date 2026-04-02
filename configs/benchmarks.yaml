@@ -1,0 +1,2 @@
+benchmark:
+  pass_threshold: 0.75

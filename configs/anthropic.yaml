@@ -1,0 +1,19 @@
+model:
+  runtime_model: anthropic/claude-sonnet-4-6
+  reflection_model: anthropic/claude-opus-4-6
+  backend:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    # api_key_env defaults to ANTHROPIC_API_KEY
+    timeout: 120.0
+  reflection_backend:
+    provider: anthropic
+    model: claude-opus-4-6
+    timeout: 180.0
+program:
+  parallel_corners: true
+  randomize_sequential_fallback_order: true
+  max_corner_generation_attempts: 2
+  trace_dir: runs/traces
+benchmark:
+  pass_threshold: 0.75

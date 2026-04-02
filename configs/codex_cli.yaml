@@ -1,0 +1,27 @@
+# Use the Codex CLI (codex exec) as the backend.
+# Requires: Codex installed and available on PATH.
+#
+# Assumptions:
+#   - `codex exec -p "<prompt>"` sends a one-shot prompt
+#   - `--model` selects the model
+#   - No structured JSON output; raw stdout is captured
+#
+# Limitations:
+#   - max_tokens is not enforced
+#   - temperature is not enforced
+#   - streaming is not supported
+#   - No usage/token reporting
+model:
+  runtime_model: cli/codex/o4-mini
+  backend:
+    provider: codex
+    model: o4-mini
+    # binary: /absolute/path/to/codex  # uncomment to override PATH detection
+    timeout: 180.0
+program:
+  parallel_corners: false
+  randomize_sequential_fallback_order: true
+  max_corner_generation_attempts: 1
+  trace_dir: runs/traces
+benchmark:
+  pass_threshold: 0.75

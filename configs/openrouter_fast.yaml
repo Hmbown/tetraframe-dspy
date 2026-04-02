@@ -1,0 +1,14 @@
+model:
+  runtime_model: openrouter/google/gemini-2.5-flash
+  backend:
+    provider: openrouter
+    model: google/gemini-2.5-flash
+    timeout: 120.0
+    max_tokens: 4096
+program:
+  parallel_corners: false
+  randomize_sequential_fallback_order: true
+  max_corner_generation_attempts: 1
+  trace_dir: runs/traces
+benchmark:
+  pass_threshold: 0.75

@@ -1,0 +1,15 @@
+# Point at any OpenAI-compatible API (vLLM, Ollama, llama.cpp, etc.)
+model:
+  runtime_model: openai/my-local-model
+  backend:
+    provider: openai-compatible
+    model: my-local-model
+    base_url: "http://localhost:8080/v1"
+    # Set api_key_env if your endpoint requires a key:
+    # api_key_env: MY_LOCAL_API_KEY
+    timeout: 120.0
+program:
+  parallel_corners: true
+  trace_dir: runs/traces
+benchmark:
+  pass_threshold: 0.75

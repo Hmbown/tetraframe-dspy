@@ -1,0 +1,15 @@
+model:
+  runtime_model: openai/gpt-4.1-mini
+  reflection_model: openai/gpt-4.1
+  backend:
+    provider: openai
+    model: gpt-4.1-mini
+    # api_key_env defaults to OPENAI_API_KEY
+    timeout: 120.0
+program:
+  parallel_corners: true
+  randomize_sequential_fallback_order: true
+  max_corner_generation_attempts: 2
+  trace_dir: runs/traces
+benchmark:
+  pass_threshold: 0.75

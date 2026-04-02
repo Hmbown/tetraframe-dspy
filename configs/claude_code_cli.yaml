@@ -1,0 +1,21 @@
+# Use the Claude Code CLI (claude) as the backend.
+# Requires: npm install -g @anthropic-ai/claude-code
+#
+# Limitations:
+#   - max_tokens is not enforced by the CLI
+#   - temperature is not enforced by the CLI
+#   - streaming is not supported (responses arrive whole)
+model:
+  runtime_model: cli/claude-code/claude-sonnet-4-6
+  backend:
+    provider: claude-code
+    model: claude-sonnet-4-6
+    # binary: /absolute/path/to/claude  # uncomment to override PATH detection
+    timeout: 600.0
+program:
+  parallel_corners: false  # CLI calls are slow; sequential is safer
+  randomize_sequential_fallback_order: true
+  max_corner_generation_attempts: 1
+  trace_dir: runs/traces
+benchmark:
+  pass_threshold: 0.75

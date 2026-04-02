@@ -1,0 +1,6 @@
+program:
+  parallel_corners: false
+  randomize_sequential_fallback_order: true
+compile:
+  train_path: examples/benchmark_cases_train.jsonl
+  dev_path: examples/benchmark_cases_dev.jsonl

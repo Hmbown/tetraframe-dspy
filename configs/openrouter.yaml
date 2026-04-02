@@ -1,0 +1,15 @@
+model:
+  runtime_model: openrouter/anthropic/claude-sonnet-4-6
+  reflection_model: openrouter/anthropic/claude-opus-4-6
+  backend:
+    provider: openrouter
+    model: anthropic/claude-sonnet-4-6
+    # api_key_env defaults to OPENROUTER_API_KEY
+    timeout: 120.0
+program:
+  parallel_corners: true
+  randomize_sequential_fallback_order: true
+  max_corner_generation_attempts: 2
+  trace_dir: runs/traces
+benchmark:
+  pass_threshold: 0.75
