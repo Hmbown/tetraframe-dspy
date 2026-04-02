@@ -1,6 +1,14 @@
 # TetraFrame
 
-A DSPy pipeline that splits a question into four independent positions (tetralemma), then synthesizes them into a single output.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+
+A [DSPy](https://dspy.ai/) pipeline that splits a question into four independent positions (tetralemma), then synthesizes them into a single output.
+
+```bash
+pip install -e ".[dev]"
+tetraframe run "Your question or problem statement" --config configs/base.yaml
+```
 
 ## What is a tetralemma?
 
@@ -27,6 +35,8 @@ TetraFrame enforces this structurally:
 
 ## The pipeline
 
+TetraFrame takes a seed question, decomposes it into four corners, maps their relationships, and synthesizes a result that isn't a compromise between them.
+
 ```
 Seed ─▶ Predicate ─▶ Four Corners ─▶ Harden ─▶ Cartograph ─▶ Arbitrate ─▶ Transform ─▶ Domain Adapt ─▶ Verify
 ```
@@ -48,7 +58,7 @@ Nine stages, run in sequence:
 ## Install
 
 ```bash
-cd tetralemma
+git clone https://github.com/Hmbown/tetraframe-dspy.git && cd tetraframe-dspy
 python -m venv venv
 venv/bin/pip install -e ".[dev]"
 venv/bin/python -m pytest -q
