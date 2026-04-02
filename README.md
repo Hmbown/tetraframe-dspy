@@ -194,6 +194,114 @@ for line in trace_path.read_text().splitlines()[:5]:
     print(row["stage_name"], row["backend_name"], row["latency_ms"])
 ```
 
+## Example run
+
+The following is from a real run where TetraFrame analyzed its own pipeline. The seed asked whether TetraFrame's multi-stage architecture produces genuine reasoning improvements or sophisticated restatement. Backend: Claude Sonnet 4 via CLI.
+
+<details>
+<summary><b>Stage 1 — Seed Distill</b> (61s)</summary>
+
+Extracts structure from the raw seed. Output includes stakes, constraints, unknowns, hidden assumptions, and candidate predicates.
+
+**Normalized seed:** TetraFrame is a 9-stage, 20+ LLM call reasoning pipeline built on tetralemmatic decomposition. It faces three separable problems: (A) an unresolved architectural direction — whether to consolidate calls for cost/latency or deepen stage isolation for quality; (B) a verification gap — the current suite detects slop heuristically but cannot distinguish genuine dialectical transformation from sophisticated restatement; and (C) a closed-loop gap — domain adapters produce typed artifacts with no signal returning from downstream consumers to inform upstream stages.
+
+**Example hidden assumption:** That 9 stages is the correct granularity — neither too many nor too few — rather than an artifact of how the system was initially built.
+
+</details>
+
+<details>
+<summary><b>Stage 2 — Predicate Selection</b> (152s)</summary>
+
+Picks the operational predicate the four corners will reason about.
+
+**Selected predicate:** TetraFrame's multi-stage pipeline produces outputs that are measurably distinguishable from sophisticated restatement of their inputs, as determined by a cross-validated binary classifier operating on embedding distance, structural novelty, and logical form change dimensions with precision and recall above 0.80 on held-out labeled examples.
+
+**Rationale (excerpt):** The primary predicate was selected over the architectural consolidation question because it is the stated prerequisite: Problem B must be resolved before Problem A can be meaningfully addressed. A predicate about consolidation would produce a tetralemma whose corners all reduce to "we don't know yet" until a quality metric exists — that is a degenerate tetralemma.
+
+</details>
+
+<details>
+<summary><b>Stage 3 — Four Corners</b> (P: 63s, not-P: 129s, Both: 218s, Neither: 306s)</summary>
+
+Each corner is generated in isolation — no corner can see the others.
+
+**P:** TetraFrame's pipeline produces outputs measurably distinguishable from sophisticated restatement because tetralemmatic decomposition mechanically requires logical form change, structural novelty, and semantic distance as preconditions for stage completion — not as emergent side effects.
+
+**not-P:** The predicate cannot be validated by the instrument it proposes, because the instrument requires as input the very judgment whose absence motivates the predicate. The three classifier dimensions measure visible text change, not dialectical transformation.
+
+**Both:** TetraFrame's pipeline both is and is not measurably distinguishable from sophisticated restatement: it IS at the formal-structural measurement layer where a classifier will reliably exceed 0.80; it is NOT at the semantic-functional layer where dialectical transformation is defined to matter — because classifier success at the structural layer does not confirm that genuine tetralemmatic transformation occurred.
+
+**Neither:** The transformation/restatement binary is a false discretization of a continuous, domain-relative, evaluator-relative gradient. The predicate's operationalization measures the detectability of a proxy, not the existence of the underlying construct.
+
+</details>
+
+<details>
+<summary><b>Stage 4 — Hardening</b> (P: 92s, not-P: 95s, Both: 122s, Neither: 86s)</summary>
+
+Strengthens each corner. Flags "Both" positions that are actually compromises. Each corner is hardened independently — still no cross-corner visibility.
+
+</details>
+
+<details>
+<summary><b>Stage 5 — Cartography</b> (1034s)</summary>
+
+First stage where all four corners are visible together. Maps pairwise relations across 10 dimensions: contradictions, complementarities, paradoxes, category errors, frame validity, evidence discriminators, invariants, and reversible/irreversible implications.
+
+**Example contradiction (P × not-P):** P's sufficiency claim — classifier > 0.80 on human-labeled examples constitutes validation of genuine transformation — directly contradicts not-P's structural circularity objection: a classifier trained on direct transformation/restatement judgments cannot validate the judgment it is trained to replace.
+
+**Example complementarity (not-P × both):** not-P's three independent objections (circularity, surface-proxy, causal attribution) each ground one element of both's not-P layer. Both extends not-P's analysis by articulating the P layer that not-P does not develop — the structural measurement outcome that is instrumentally achievable.
+
+</details>
+
+<details>
+<summary><b>Stage 6 — Arbitration</b> (583s)</summary>
+
+Scores corners for rigor, detects near-duplicates and contamination, produces fair reconstructions.
+
+**Arbiter notes (excerpt):** The four-corner analysis is not primarily a debate between competing hypotheses about TetraFrame. It is a progressively fine-grained examination of what kind of evidence is meaningful at what ontological altitude. The only genuinely adversarial relation is P × not-P on the actionable empirical question. All other relations are transformations, dissolutions, or complementarities.
+
+</details>
+
+<details>
+<summary><b>Stage 7 — Transform</b> (379s)</summary>
+
+Synthesizes a single output from all four corners without averaging them.
+
+**Transformed predicate:** TetraFrame's multi-stage pipeline produces a per-stage measurable effect-size lift on a pre-registered continuous transformation rubric relative to a compute-matched single-call baseline, where: (1) the rubric dimensions are validated against at least one domain with formal transformation criteria before any pipeline scoring begins; (2) the lift is reported per-domain and per-stage to expose whether the corner-switching structure rather than token budget is the operative causal variable.
+
+**Why it's not an average:** P* does not retain the binary frame with additional checks, does not soften P's sufficiency claim to a sufficiency claim with caveats, and does not accept not-P's rejection while proposing a weaker affirmation. The transformation is structural — replacing the binary classification frame entirely with a continuous, construct-validated, stage-decomposed attribution frame.
+
+</details>
+
+<details>
+<summary><b>Stage 8 — Domain Adapt</b></summary>
+
+Adapts the transformed output into four domain-specific formats: writing, coding, research, and planning. Each adapter reshapes the same transformed frame for its target context.
+
+</details>
+
+<details>
+<summary><b>Stage 9 — Verify</b> (aggregate: 0.901)</summary>
+
+Runs quality checks across 10 metrics. This run scored:
+
+| Metric | Score | Pass |
+|---|---|---|
+| Branch independence | 1.000 | yes |
+| Divergence quality | 0.904 | yes |
+| Rigor of Both | 1.000 | yes |
+| Rigor of Neither | 0.938 | yes |
+| Contradiction honesty | 1.000 | yes |
+| Transformation quality | 1.000 | yes |
+| Actionability | 1.000 | yes |
+| Robustness | 0.879 | yes |
+| Fake novelty risk | 0.400 | **no** |
+| Slop risk | 0.884 | yes |
+
+The fake novelty flag fired on the transformed predicate — the verifier flagged unsupported new concepts in P*. This is a real check, not a false positive: the transformed predicate introduced terminology ("construct-validated rubric", "stage-decomposed attribution") that wasn't grounded in the corners' evidence base.
+
+</details>
+
 ## Config reference
 
 ```yaml
