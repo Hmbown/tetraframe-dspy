@@ -10,15 +10,16 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "dspy>=2.6.0",
+  "httpx>=0.25",
   "pydantic>=2.6",
   "pyyaml>=6.0",
   "typer>=0.12",
 ]
 
 [project.optional-dependencies]
-proxy = ["fastapi>=0.100", "uvicorn>=0.27", "httpx>=0.25"]
+proxy = ["fastapi>=0.100", "uvicorn>=0.27"]
 test = ["pytest>=8.0", "pytest-asyncio>=0.24"]
-dev = ["dspy>=2.6.0", "pytest>=8.0", "pytest-asyncio>=0.24", "httpx>=0.25", "fastapi>=0.100", "uvicorn>=0.27"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "fastapi>=0.100", "uvicorn>=0.27"]
 
 [project.scripts]
 tetraframe = "tetraframe.cli:app"

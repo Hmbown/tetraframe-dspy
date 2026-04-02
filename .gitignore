@@ -41,6 +41,10 @@ coverage.xml
 # mypy
 .mypy_cache/
 
+# Database
+state.db
+*.db
+
 # Temp files
 run_with_env.sh
 texput.log

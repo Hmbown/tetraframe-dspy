@@ -87,18 +87,33 @@ export OPENROUTER_API_KEY="sk-or-..."
 
 Config: `configs/openrouter.yaml`
 
-### Generic OpenAI-compatible endpoint
+### Any OpenAI-compatible API (DeepSeek, NVIDIA NIM, vLLM, Ollama, etc.)
 
-Edit `configs/openai_compatible.yaml`:
+Any provider with an OpenAI-compatible `/v1` endpoint works — no special
+config file needed. Just set `provider: openai-compatible` and point at
+the endpoint:
 
 ```yaml
+# Example: DeepSeek
 model:
+  runtime_model: openai/deepseek-chat
   backend:
     provider: openai-compatible
-    model: my-local-model
-    base_url: "http://localhost:8080/v1"
-    # api_key_env: MY_API_KEY  # if your endpoint requires auth
+    model: deepseek-chat
+    base_url: "https://api.deepseek.com/v1"
+    api_key_env: DEEPSEEK_API_KEY
+
+# Example: NVIDIA NIM
+model:
+  runtime_model: openai/deepseek-ai/deepseek-v3.2
+  backend:
+    provider: openai-compatible
+    model: deepseek-ai/deepseek-v3.2
+    base_url: "https://integrate.api.nvidia.com/v1"
+    api_key_env: NVIDIA_API_KEY
 ```
+
+See `configs/openai_compatible.yaml` for a template.
 
 ### Claude Code CLI
 
@@ -183,6 +198,35 @@ Outputs:
 
 Trace files now include backend metadata: `backend_name`, `backend_kind`,
 `backend_model`, `execution_mode`, and `capability_warnings` per stage.
+
+## Tool Plugin System (Auto-Discover)
+
+TetraFrame can auto-discover available models from env vars, CLI tools, and
+Hermes credential pools — no YAML config needed.
+
+```bash
+# See what's available
+venv/bin/tetraframe discover
+
+# Run with zero config (auto-selects best available model)
+venv/bin/tetraframe run "Your reasoning seed"
+
+# Run with a specific tool
+venv/bin/tetraframe run "Your reasoning seed" --tool openai-api
+```
+
+The `discover` command shows every registered tool, its availability, priority,
+and cost tier. Priority ranking: Hermes tools > API backends with keys > CLI
+tools on PATH.
+
+To control tool selection in config:
+
+```yaml
+tools:
+  auto_discover: true
+  preferred_tool: openai-api        # force this tool if available
+  fallback_chain: [claude-api, codex-cli]  # try these in order
+```
 
 ## Inspect Traces
 
@@ -360,7 +404,7 @@ Backend config lives under `model.backend`:
 
 ```yaml
 model:
-  runtime_model: openai/gpt-4.1-mini   # litellm model string (legacy compat)
+  runtime_model: openai/gpt-4.1-mini   # provider/model string
   reflection_model: openai/gpt-4.1     # for compilation
   backend:
     kind: api                # "api" or "cli" (inferred from provider)
@@ -394,6 +438,14 @@ src/tetraframe/
     cli_opencode.py      # OpenCode adapter
     dspy_adapter.py      # CLILanguageModel (DSPy-compatible CLI wrapper)
     factory.py           # build_backend(), build_dspy_lm()
+  tools/
+    __init__.py
+    protocol.py          # ModelTool protocol, ToolInfo
+    registry.py          # ToolRegistry, auto_discover()
+    api_tool.py          # DirectAPITool (OpenAI, Anthropic, etc.)
+    cli_tool.py          # CLITool (claude, codex, opencode)
+    hermes_tool.py       # Hermes credential pool integration
+    dspy_adapter.py      # ModelToolLM (DSPy-compatible wrapper)
   proxy/
     server.py            # Multi-backend OpenAI-compatible proxy
     client.py            # Backward-compatible Claude CLI shim
@@ -417,6 +469,7 @@ configs/
   claude_code_cli.yaml   # Claude Code CLI
   codex_cli.yaml         # Codex CLI
   opencode_cli.yaml      # OpenCode CLI
+  benchmarks.yaml        # Benchmark settings
   compile.yaml           # Compilation settings
 ```
 

@@ -9,7 +9,7 @@ import typer
 from tetraframe.backends.factory import build_dspy_lm, get_backend_metadata
 from tetraframe.benchmarks import BenchmarkHarness, load_benchmark_examples
 from tetraframe.compile import Compiler
-from tetraframe.config import load_config
+from tetraframe.config import RootConfig, load_config
 from tetraframe.pipeline import TetraFrameProgram, build_runtime_runner
 
 app = typer.Typer(add_completion=False)
@@ -22,6 +22,21 @@ def _configure_lm(cfg, *, echo: bool = True) -> None:
     """
     lm = build_dspy_lm(cfg)
     dspy.configure(lm=lm)
+
+    # Detect tool-based vs legacy path
+    if hasattr(lm, "_tool"):
+        info = lm._tool.info
+        if echo:
+            typer.echo(f"tool: {info.name}  model: {info.model}  kind: {info.kind}")
+        from tetraframe.backends.base import BackendCapabilities, BackendMetadata
+        return BackendMetadata(
+            name=info.name,
+            kind=info.kind,
+            provider=info.provider,
+            model=info.model,
+            capabilities=BackendCapabilities(),
+        )
+
     meta = get_backend_metadata(cfg)
     if echo:
         typer.echo(f"backend: {meta.name}  model: {meta.model}  kind: {meta.kind}")
@@ -31,12 +46,42 @@ def _configure_lm(cfg, *, echo: bool = True) -> None:
 
 
 @app.command()
+def discover() -> None:
+    """Show all available model tools and their status."""
+    from tetraframe.tools.registry import auto_discover
+    registry = auto_discover()
+    entries = registry.summary()
+    if not entries:
+        typer.echo("no tools found")
+        raise typer.Exit(1)
+    for entry in entries:
+        status = "READY" if entry["available"] else "  ---"
+        typer.echo(
+            f"  [{status}] {entry['name']:24s} "
+            f"{entry['provider']}/{entry['model']:32s} "
+            f"priority={entry['priority']:3d}  {entry['cost_tier']}"
+        )
+    best = registry.best_available()
+    if best:
+        typer.echo(f"\n  auto-selected: {best.info.name} ({best.info.provider}/{best.info.model})")
+    else:
+        typer.echo("\n  no tools available — set API keys or install CLI tools")
+
+
+@app.command()
 def run(
     seed: str = typer.Argument(..., help="Raw project seed."),
-    config: Path = typer.Option(Path("configs/base.yaml"), exists=True),
+    config: Path = typer.Option(None, help="Config YAML. If omitted, auto-discovers available models."),
     out: Path = typer.Option(Path("runs/latest/run.json")),
+    tool: str = typer.Option(None, help="Preferred tool name (from 'tetraframe discover')."),
 ) -> None:
-    cfg = load_config(config)
+    if config and config.exists():
+        cfg = load_config(config)
+    else:
+        # Zero-config: auto-discover tools
+        cfg = RootConfig()
+    if tool:
+        cfg.tools.preferred_tool = tool
     meta = _configure_lm(cfg)
     program = TetraFrameProgram(cfg)
     program.trace_logger.set_backend_info(

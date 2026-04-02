@@ -15,6 +15,7 @@ in the backend config.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from tetraframe.backends.base import BackendCapabilities

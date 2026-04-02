@@ -12,27 +12,13 @@ from pydantic import BaseModel, Field, model_validator
 # Backend configuration
 # ---------------------------------------------------------------------------
 
-# Providers that use the OpenAI-compatible API surface (through litellm / dspy)
-API_PROVIDERS = frozenset({
-    "openai",
-    "anthropic",
-    "openrouter",
-    "openai-compatible",
-})
-
-# Providers that invoke a local CLI binary via subprocess
+# Providers that invoke a local CLI binary via subprocess.
+# Everything else is treated as a generic OpenAI-compatible API.
 CLI_PROVIDERS = frozenset({
     "claude-code",
     "codex",
     "opencode",
 })
-
-# Map provider names to the env var that typically holds the API key.
-DEFAULT_API_KEY_ENVS: dict[str, str] = {
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-}
 
 
 class BackendConfig(BaseModel):
@@ -61,13 +47,10 @@ class BackendConfig(BaseModel):
     def _infer_kind_and_defaults(self) -> "BackendConfig":
         # Infer kind from provider when not explicitly set
         if self.kind is None:
-            if self.provider in CLI_PROVIDERS:
-                self.kind = "cli"
-            else:
-                self.kind = "api"
-        # Infer api_key_env for known API providers
-        if self.kind == "api" and self.api_key_env is None:
-            self.api_key_env = DEFAULT_API_KEY_ENVS.get(self.provider)
+            self.kind = "cli" if self.provider in CLI_PROVIDERS else "api"
+        # Convention: {PROVIDER}_API_KEY for known providers
+        if self.kind == "api" and self.api_key_env is None and self.provider != "openai-compatible":
+            self.api_key_env = f"{self.provider.upper()}_API_KEY"
         return self
 
     def resolved_api_key(self) -> str | None:
@@ -77,30 +60,29 @@ class BackendConfig(BaseModel):
         return None
 
     def dspy_model_string(self) -> str:
-        """Return the litellm-compatible model string for dspy.LM().
+        """Return the provider/model string for dspy.LM().
 
-        For provider 'openai' with model 'gpt-4.1-mini' -> 'openai/gpt-4.1-mini'.
-        For provider 'openai-compatible' -> 'openai/<model>' (litellm uses openai/).
-        For provider 'openrouter' with model 'anthropic/claude-sonnet-4-6' ->
-            'openrouter/anthropic/claude-sonnet-4-6'.
+        Rules:
+        - If model already contains '/', return as-is.
+        - 'openai-compatible' prefix becomes 'openai/'.
+        - Everything else: '{provider}/{model}'.
         """
         model = self.model
         if not model:
             return ""
-        provider = self.provider
-        if provider == "openai-compatible":
-            # litellm routes through OpenAI client when prefix is 'openai/'
-            if not model.startswith("openai/"):
-                return f"openai/{model}"
+        if "/" in model:
             return model
-        # For routing providers like openrouter, always prefix with provider
-        if provider == "openrouter":
-            if model.startswith("openrouter/"):
-                return model
-            return f"openrouter/{model}"
-        if "/" not in model:
-            return f"{provider}/{model}"
-        return model
+        if self.provider == "openai-compatible":
+            return f"openai/{model}"
+        return f"{self.provider}/{model}"
+
+
+class ToolConfig(BaseModel):
+    """Plugin tool configuration — the new simplified path."""
+
+    auto_discover: bool = True
+    preferred_tool: str | None = None
+    fallback_chain: list[str] = Field(default_factory=list)
 
 
 class ProxyConfig(BaseModel):
@@ -145,6 +127,7 @@ class BenchmarkConfig(BaseModel):
 
 class RootConfig(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
+    tools: ToolConfig = Field(default_factory=ToolConfig)
     program: ProgramConfig = Field(default_factory=ProgramConfig)
     compile: CompileConfig = Field(default_factory=CompileConfig)
     benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)

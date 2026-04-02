@@ -331,8 +331,8 @@ class TestOpenCodeBackend:
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/opencode")
         backend = OpenCodeBackend(binary="/usr/bin/opencode")
         cmd = backend._build_command("prompt text", "my-model")
-        assert "ask" in cmd
-        assert "--model" in cmd
+        assert "run" in cmd
+        assert "-m" in cmd
 
 
 # =========================================================================
@@ -512,8 +512,10 @@ class TestAPIBackend:
         from tetraframe.backends.api import APIBackend
         cfg = BackendConfig(provider="openai", model="gpt-4.1-mini")
         api = APIBackend(cfg)
+        # All API backends report generic capabilities (we can't probe the actual endpoint)
         assert api.metadata.capabilities.streaming is True
-        assert api.metadata.capabilities.tool_use is True
+        assert api.metadata.capabilities.max_tokens is True
+        assert api.metadata.capabilities.temperature is True
 
     def test_is_available_checks_env(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")

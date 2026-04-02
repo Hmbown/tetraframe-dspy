@@ -1,9 +1,8 @@
 """API backend for OpenAI-compatible HTTP providers.
 
 This backend validates configuration and constructs the parameters needed
-for ``dspy.LM()``.  It does not duplicate HTTP logic — litellm (inside
-DSPy) handles the actual API calls.  The backend also implements the
-``Backend`` protocol so the proxy can use it for direct HTTP forwarding.
+for ``dspy.LM()``.  The ``chat_with_usage()`` method uses raw httpx
+for direct HTTP calls — no litellm.
 """
 from __future__ import annotations
 
@@ -14,25 +13,11 @@ from tetraframe.backends.base import Backend, BackendCapabilities, BackendMetada
 from tetraframe.config import BackendConfig
 
 
-# Provider → capability map
-_PROVIDER_CAPS: dict[str, BackendCapabilities] = {
-    "openai": BackendCapabilities(
-        streaming=True, max_tokens=True, temperature=True,
-        structured_json=True, tool_use=True,
-    ),
-    "anthropic": BackendCapabilities(
-        streaming=True, max_tokens=True, temperature=True,
-        structured_json=True, tool_use=True,
-    ),
-    "openrouter": BackendCapabilities(
-        streaming=True, max_tokens=True, temperature=True,
-        structured_json=False, tool_use=False,
-    ),
-    "openai-compatible": BackendCapabilities(
-        streaming=True, max_tokens=True, temperature=True,
-        structured_json=False, tool_use=False,
-    ),
-}
+# Default capabilities for any OpenAI-compatible API.
+_DEFAULT_API_CAPS = BackendCapabilities(
+    streaming=True, max_tokens=True, temperature=True,
+    structured_json=False, tool_use=False,
+)
 
 
 class APIBackend:
@@ -63,13 +48,12 @@ class APIBackend:
 
     @property
     def metadata(self) -> BackendMetadata:
-        caps = _PROVIDER_CAPS.get(self._cfg.provider, BackendCapabilities())
         return BackendMetadata(
             name=f"{self._cfg.provider}-api",
             kind="api",
             provider=self._cfg.provider,
             model=self._cfg.model,
-            capabilities=caps,
+            capabilities=_DEFAULT_API_CAPS,
         )
 
     def build_dspy_lm_kwargs(self) -> dict[str, Any]:
@@ -96,44 +80,41 @@ class APIBackend:
     def chat_with_usage(
         self, messages: list[dict[str, Any]], **kwargs: Any
     ) -> tuple[str, dict[str, Any]]:
-        """Direct HTTP call returning (text, usage_dict).
+        """Direct HTTP call returning (text, usage_dict)."""
+        import httpx
 
-        Uses litellm.completion for consistency with DSPy's provider support.
-        """
-        try:
-            import litellm  # type: ignore
-        except ImportError:
-            raise RuntimeError(
-                "litellm is required for direct API backend calls. "
-                "Install dspy (which includes litellm) or install litellm directly."
-            )
-        model_str = self._cfg.dspy_model_string()
-        call_kwargs: dict[str, Any] = {
-            "model": model_str,
+        base_url = self._cfg.base_url
+        if not base_url:
+            raise RuntimeError("API backend requires base_url for direct calls")
+
+        api_key = os.environ.get(self._cfg.api_key_env, "") if self._cfg.api_key_env else ""
+        url = f"{base_url.rstrip('/')}/chat/completions"
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        body: dict[str, Any] = {
+            "model": self._cfg.model,
             "messages": messages,
         }
-        if self._cfg.base_url:
-            call_kwargs["api_base"] = self._cfg.base_url
-        if self._cfg.api_key_env:
-            key = os.environ.get(self._cfg.api_key_env, "")
-            if key:
-                call_kwargs["api_key"] = key
         temperature = kwargs.get("temperature", self._cfg.temperature)
         if temperature is not None:
-            call_kwargs["temperature"] = temperature
+            body["temperature"] = temperature
         max_tokens = kwargs.get("max_tokens", self._cfg.max_tokens)
         if max_tokens is not None:
-            call_kwargs["max_tokens"] = max_tokens
-        response = litellm.completion(**call_kwargs)
-        text = response.choices[0].message.content or ""
-        usage = {}
-        if hasattr(response, "usage") and response.usage:
-            usage = {
-                "prompt_tokens": response.usage.prompt_tokens or 0,
-                "completion_tokens": response.usage.completion_tokens or 0,
-                "total_tokens": response.usage.total_tokens or 0,
-            }
-        return text, usage
+            body["max_tokens"] = max_tokens
+
+        resp = httpx.post(url, json=body, headers=headers, timeout=self._cfg.timeout)
+        resp.raise_for_status()
+        data = resp.json()
+
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        usage = data.get("usage") or {}
+        return text, {
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0),
+        }
 
     def is_available(self) -> bool:
         if self._cfg.api_key_env:

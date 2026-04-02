@@ -8,7 +8,7 @@ Exposes:
 
 Supports:
 - CLI backends (Claude Code, Codex, OpenCode) via subprocess adapters
-- API backends (OpenAI, Anthropic, OpenRouter, generic) via litellm/httpx
+- API backends (OpenAI, Anthropic, OpenRouter, generic) via httpx
 
 Backend selection:
 - ``model`` field: if it contains a ``/`` prefix matching a provider, routes
