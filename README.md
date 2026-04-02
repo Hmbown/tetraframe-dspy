@@ -4,7 +4,7 @@ A DSPy reasoning package that generates four independent positions from a single
 
 ## What is a tetralemma?
 
-A tetralemma is a four-corner logical structure originating in classical Indian and Aristotelian logic. Where binary reasoning gives you two options —
+A tetralemma — from the Sanskrit catuṣkoṭi — is a four-corner logical structure developed in Buddhist logic (notably Nāgārjuna's Madhyamaka school, ~2nd century CE). Where standard binary reasoning gives you two options —
 
 ```
 A or not-A
@@ -16,7 +16,7 @@ A or not-A
 P · not-P · Both · Neither
 ```
 
-The key insight: binary framing creates anchoring bias. You state a thesis, then react against it, and end up with a compromise that inherits the weaknesses of both sides. A tetralemma avoids this by making you explore all four corners independently before synthesizing anything.
+Binary framing creates anchoring bias: you state a thesis, react against it, and land on a compromise that inherits the weaknesses of both sides. A tetralemma avoids this by forcing independent exploration of all four corners before any synthesis.
 
 TetraFrame enforces this structurally:
 
@@ -28,11 +28,7 @@ TetraFrame enforces this structurally:
 ## The pipeline
 
 ```
-Seed ─▶ Predicate ─▶ Four Corners ─▶ Harden ─▶ Cartograph ─▶ Arbitrate
-                                                                    │
-                                          ┌─────────────────────────┘
-                                          ▼
-                  Verify ◀── Domain Adapt ◀── Transform
+Seed ─▶ Predicate ─▶ Four Corners ─▶ Harden ─▶ Cartograph ─▶ Arbitrate ─▶ Transform ─▶ Domain Adapt ─▶ Verify
 ```
 
 TetraFrame runs 9 stages in sequence:
