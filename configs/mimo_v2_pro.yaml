@@ -3,7 +3,7 @@ model:
   runtime_model: cli/opencode/mimo-v2-pro
   backend:
     provider: opencode
-    model: mimo-v2-pro
+    model: opencode-go/mimo-v2-pro
     timeout: 300.0
 program:
   parallel_corners: false
