@@ -3,12 +3,24 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-A [DSPy](https://dspy.ai/) pipeline that splits a question into four independent positions (tetralemma), then synthesizes them into a single output. Each stage is a DSPy module with typed signatures — the whole pipeline is compilable with BootstrapFewShot, MIPROv2, and GEPA.
+A reasoning harness built on [DSPy](https://dspy.ai/) for four-corner (tetralemmatic) analysis of hard questions. Best suited for strategic decisions, design tradeoffs, and framing problems where binary pro/con thinking collapses into compromise.
 
 ```bash
 pip install -e ".[dev]"
 tetraframe run "Your question or problem statement" --config configs/base.yaml
 ```
+
+## How DSPy is used
+
+TetraFrame is a DSPy program. Each pipeline stage is a `dspy.Module` with typed `dspy.Signature` classes that define exact input/output fields. The LLM never gets a freeform prompt — DSPy's adapter layer handles formatting, parsing, and retry.
+
+What this buys you:
+
+- **Compilation.** The whole pipeline is optimizable with DSPy's prompt optimizers — `BootstrapFewShot` for early stages, `MIPROv2` for corners, `GEPA` for the transformer. Compilation tunes the prompts against your benchmark data without changing any code.
+- **`ChainOfThought` and `BestOfN`.** Corner generation uses `ChainOfThought` for structured reasoning. The transform stage uses `BestOfN` with a reward function that penalizes compromise language — it samples 3 candidates and picks the one that scores highest on non-averaging transformation.
+- **Backend agnosticism.** DSPy's `LM` abstraction means the same pipeline runs on OpenAI, Anthropic, OpenRouter, or local CLI tools (Claude Code, Codex, OpenCode) without changing signatures or modules.
+
+If you've used DSPy before: `TetraFrameProgram` is a `dspy.Module` with a `forward()` method. You can `save()`, `load()`, compile it, or nest it inside a larger DSPy program.
 
 ## What is a tetralemma?
 
