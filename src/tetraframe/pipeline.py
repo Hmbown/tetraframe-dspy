@@ -6,10 +6,9 @@ from typing import Any
 import tetraframe.dspy_compat as dspy
 
 from tetraframe.artifacts import (
-    CornerDraftArtifact,
+    CornerArtifact,
     CornerInputView,
     CornerMode,
-    HardenedCornerArtifact,
     TetraFrameRunArtifact,
 )
 from tetraframe.config import RootConfig
@@ -27,9 +26,6 @@ from tetraframe.modules import (
     CornerNeitherGenerator,
     CornerNotPGenerator,
     CornerPGenerator,
-    DomainAdaptModule,
-    FourCornerArbiterModule,
-    HardenCornerModule,
     PredicateSelectModule,
     SeedDistillModule,
     TransformFrameModule,
@@ -39,10 +35,15 @@ from tetraframe.tracing import TraceLogger
 
 
 class TetraFrameProgram(dspy.Module):
-    """Compile-friendly sequential program with explicit branch isolation.
+    """Six-stage tetralemmatic reasoning pipeline.
 
-    Production uses AsyncTetraFrameRunner for actual parallel branch execution.
-    This class is intentionally deterministic and optimizer-friendly.
+    Stages:
+        0. Seed Distill
+        1. Predicate Selection
+        2. Four Corners (generate + harden in one pass)
+        3. Cartography + Arbitration (merged)
+        4. Transform
+        5. Verify
     """
 
     def __init__(self, cfg: RootConfig):
@@ -56,11 +57,8 @@ class TetraFrameProgram(dspy.Module):
             CornerMode.BOTH: CornerBothGenerator(),
             CornerMode.NEITHER: CornerNeitherGenerator(),
         }
-        self.harden_corner = HardenCornerModule()
         self.cartograph = CartographCornersModule()
-        self.arbitrate = FourCornerArbiterModule()
         self.transform = TransformFrameModule()
-        self.domain_adapt = DomainAdaptModule()
         self.verify = VerifyRunModule()
         self.trace_logger = TraceLogger(cfg.program.trace_dir)
 
@@ -68,36 +66,24 @@ class TetraFrameProgram(dspy.Module):
         distilled, traces = self._run_stage0(raw_seed)
         selection, trace = self._run_stage1(distilled)
         traces.append(trace)
-        corner_inputs, corner_drafts, stage2_traces = self._run_stage2(distilled, selection)
+        corner_inputs, corners, stage2_traces = self._run_stage2(distilled, selection)
         traces.extend(stage2_traces)
-        hardened_corners, stage3_traces = self._run_stage3(distilled, selection, corner_drafts)
-        traces.extend(stage3_traces)
-        cartography, trace = self._run_stage4(distilled.run_id, hardened_corners)
+        cartography, trace = self._run_stage3(distilled.run_id, corners)
         traces.append(trace)
-        arbiter, trace = self._run_stage5(distilled.run_id, hardened_corners, cartography)
+        transformed, trace = self._run_stage4(distilled, selection, corners, cartography)
         traces.append(trace)
-        transformed, trace = self._run_stage6(distilled, selection, hardened_corners, cartography, arbiter)
-        traces.append(trace)
-        (writing, coding, research, planning), stage7_traces = self._run_stage7(distilled.run_id, transformed, cartography)
-        traces.extend(stage7_traces)
         provisional = TetraFrameRunArtifact(
             run_id=distilled.run_id,
             distilled_seed=distilled,
             predicate_selection=selection,
             corner_inputs=corner_inputs,
-            corner_drafts=corner_drafts,
-            hardened_corners=hardened_corners,
+            corners=corners,
             cartography=cartography,
-            arbiter=arbiter,
             transformed_frame=transformed,
-            writing=writing,
-            coding=coding,
-            research=research,
-            planning=planning,
             verification=None,  # type: ignore[arg-type]
             traces=traces,
         )
-        verification, trace = self._run_stage8(provisional)
+        verification, trace = self._run_stage5(provisional)
         traces.append(trace)
         provisional.verification = verification
         provisional.traces = traces
@@ -166,14 +152,14 @@ class TetraFrameProgram(dspy.Module):
         modes = self._ordered_corner_modes(distilled.run_id)
         views = self._build_corner_views(distilled, selection)
         traces = []
-        drafts: dict[CornerMode, CornerDraftArtifact] = {}
+        corners: dict[CornerMode, CornerArtifact] = {}
         for attempt in range(1, self.cfg.program.max_corner_generation_attempts + 1):
             contexts = []
             for mode in modes:
                 view = views[mode]
                 trace_ctx = self.trace_logger.stage(
                     run_id=distilled.run_id,
-                    stage_name=f"stage2.generate.{mode.value}",
+                    stage_name=f"stage2.corner.{mode.value}",
                     module_name=self.corner_generators[mode].__class__.__name__,
                     signature_name=self.corner_generators[mode].signature_cls.__name__,
                     attempt=attempt,
@@ -185,121 +171,62 @@ class TetraFrameProgram(dspy.Module):
                     },
                 )
                 contexts.append((mode, trace_ctx))
-                draft = self.corner_generators[mode](
+                corner = self.corner_generators[mode](
                     view,
                     rollout_id=f"{distilled.run_id}:stage2:{mode.value}:{attempt}",
                     temperature=self.cfg.program.corner_temperatures[mode.value],
                 )
-                drafts[mode] = draft
-            duplicates = detect_near_duplicate_corners(drafts, distilled.normalized_project_seed)
+                corners[mode] = corner
+            duplicates = detect_near_duplicate_corners(corners, distilled.normalized_project_seed)
             retry_reason = "near-duplicate corners detected" if duplicates else ""
             for mode, trace_ctx in contexts:
-                traces.append(trace_ctx.close(drafts[mode].model_dump(), retry_reason=retry_reason))
+                traces.append(trace_ctx.close(corners[mode].model_dump(), retry_reason=retry_reason))
             if not duplicates:
                 break
             views = self._apply_anti_collapse_hints(views, duplicates)
-        return views, drafts, traces
+        return views, corners, traces
 
-    def _run_stage3(self, distilled, selection, drafts):
-        traces = []
-        hardened: dict[CornerMode, HardenedCornerArtifact] = {}
-        for mode, draft in drafts.items():
-            trace_ctx = self.trace_logger.stage(
-                run_id=distilled.run_id,
-                stage_name=f"stage3.harden.{mode.value}",
-                module_name="HardenCornerModule",
-                signature_name="HardenCornerSignature",
-                attempt=1,
-                visible_inputs={
-                    "mode": mode.value,
-                    "primary_predicate": selection.primary_predicate.text,
-                    "corner": draft.model_dump(),
-                },
-                blocked_input_fields=BLOCKED_CORNER_FIELDS,
-            )
-            hardened_corner = self.harden_corner(distilled, selection, draft)
-            hardened[mode] = hardened_corner
-            traces.append(trace_ctx.close(hardened_corner.model_dump()))
-        return hardened, traces
-
-    def _run_stage4(self, run_id, hardened):
+    def _run_stage3(self, run_id, corners):
         trace_ctx = self.trace_logger.stage(
             run_id=run_id,
-            stage_name="stage4.cartograph",
+            stage_name="stage3.cartograph",
             module_name="CartographCornersModule",
             signature_name="PairwiseRelationSignature+GlobalCartographySignature",
             attempt=1,
-            visible_inputs={"corners": {k.value: v.model_dump() for k, v in hardened.items()}},
+            visible_inputs={"corners": {k.value: v.model_dump() for k, v in corners.items()}},
             blocked_input_fields=[],
         )
-        cartography = self.cartograph(hardened)
+        cartography = self.cartograph(corners)
         trace = trace_ctx.close(cartography.model_dump())
         return cartography, trace
 
-    def _run_stage5(self, run_id, hardened, cartography):
-        trace_ctx = self.trace_logger.stage(
-            run_id=run_id,
-            stage_name="stage5.arbiter",
-            module_name="FourCornerArbiterModule",
-            signature_name="FourCornerArbiterSignature",
-            attempt=1,
-            visible_inputs={
-                "hardened_corners": {k.value: v.model_dump() for k, v in hardened.items()},
-                "cartography": cartography.model_dump(),
-            },
-            blocked_input_fields=[],
-        )
-        arbiter = self.arbitrate(hardened, cartography)
-        trace = trace_ctx.close(arbiter.model_dump())
-        return arbiter, trace
-
-    def _run_stage6(self, distilled, selection, hardened, cartography, arbiter):
+    def _run_stage4(self, distilled, selection, corners, cartography):
         trace_ctx = self.trace_logger.stage(
             run_id=distilled.run_id,
-            stage_name="stage6.transform",
+            stage_name="stage4.transform",
             module_name="TransformFrameModule",
             signature_name="TransformFrameSignature",
             attempt=1,
             visible_inputs={
                 "primary_predicate": selection.primary_predicate.text,
                 "cartography": cartography.model_dump(),
-                "arbiter": arbiter.model_dump(),
             },
             blocked_input_fields=[],
         )
-        transformed = self.transform(distilled, selection, hardened, cartography, arbiter)
+        transformed = self.transform(distilled, selection, corners, cartography)
         trace = trace_ctx.close(transformed.model_dump())
         return transformed, trace
 
-    def _run_stage7(self, run_id, transformed, cartography):
-        outputs = self.domain_adapt(transformed, cartography)
-        traces = []
-        for name, artifact in zip(["writing", "coding", "research", "planning"], outputs, strict=True):
-            trace_ctx = self.trace_logger.stage(
-                run_id=run_id,
-                stage_name=f"stage7.domain.{name}",
-                module_name="DomainAdaptModule",
-                signature_name=f"Adapt{name.title()}Signature",
-                attempt=1,
-                visible_inputs={
-                    "transformed_predicate": transformed.transformed_predicate,
-                    "transformed_frame": transformed.transformed_frame,
-                },
-                blocked_input_fields=[],
-            )
-            traces.append(trace_ctx.close(artifact.model_dump()))
-        return outputs, traces
-
-    def _run_stage8(self, run: TetraFrameRunArtifact):
+    def _run_stage5(self, run: TetraFrameRunArtifact):
         trace_ctx = self.trace_logger.stage(
             run_id=run.run_id,
-            stage_name="stage8.verify",
+            stage_name="stage5.verify",
             module_name="VerifyRunModule",
             signature_name=None,
             attempt=1,
             visible_inputs={
                 "transformed_predicate": run.transformed_frame.transformed_predicate,
-                "corner_modes": [k.value for k in run.hardened_corners],
+                "corner_modes": [k.value for k in run.corners],
             },
             blocked_input_fields=[],
         )
@@ -309,11 +236,7 @@ class TetraFrameProgram(dspy.Module):
 
 
 class AsyncTetraFrameRunner:
-    """Production runner that preserves the same stage contracts but executes stages 2 and 3 in parallel.
-
-    DSPy currently supports async wrapping via `dspy.asyncify`. This class keeps that wrapper at the orchestration layer,
-    outside the module internals, which is the safest pattern for production parallelism.
-    """
+    """Production runner that executes corners in parallel."""
 
     def __init__(self, program: TetraFrameProgram):
         self.program = program
@@ -322,11 +245,11 @@ class AsyncTetraFrameRunner:
         self,
         distilled,
         selection,
-    ) -> tuple[dict[CornerMode, CornerInputView], dict[CornerMode, CornerDraftArtifact], list]:
+    ) -> tuple[dict[CornerMode, CornerInputView], dict[CornerMode, CornerArtifact], list]:
         views = self.program._build_corner_views(distilled, selection)
         modes = self.program._ordered_corner_modes(distilled.run_id)
         traces = []
-        drafts: dict[CornerMode, CornerDraftArtifact] = {}
+        corners: dict[CornerMode, CornerArtifact] = {}
         for attempt in range(1, self.program.cfg.program.max_corner_generation_attempts + 1):
             ordered_items = [(mode, self.program.corner_generators[mode]) for mode in modes]
             contexts = []
@@ -334,7 +257,7 @@ class AsyncTetraFrameRunner:
             for mode, module in ordered_items:
                 trace_ctx = self.program.trace_logger.stage(
                     run_id=distilled.run_id,
-                    stage_name=f"stage2.generate.{mode.value}",
+                    stage_name=f"stage2.corner.{mode.value}",
                     module_name=module.__class__.__name__,
                     signature_name=module.signature_cls.__name__,
                     attempt=attempt,
@@ -355,76 +278,38 @@ class AsyncTetraFrameRunner:
                     )
                 )
             results = await asyncio.gather(*tasks)
-            drafts = {mode: result for (mode, _), result in zip(contexts, results, strict=True)}
-            duplicates = detect_near_duplicate_corners(drafts, distilled.normalized_project_seed)
+            corners = {mode: result for (mode, _), result in zip(contexts, results, strict=True)}
+            duplicates = detect_near_duplicate_corners(corners, distilled.normalized_project_seed)
             retry_reason = "near-duplicate corners detected" if duplicates else ""
             for (mode, trace_ctx), result in zip(contexts, results, strict=True):
                 traces.append(trace_ctx.close(result.model_dump(), retry_reason=retry_reason))
             if not duplicates:
                 break
             views = self.program._apply_anti_collapse_hints(views, duplicates)
-        return views, drafts, traces
-
-    async def _harden_corners_async(self, distilled, selection, drafts):
-        modes = list(drafts.keys())
-        contexts = []
-        tasks = []
-        for mode in modes:
-            trace_ctx = self.program.trace_logger.stage(
-                run_id=distilled.run_id,
-                stage_name=f"stage3.harden.{mode.value}",
-                module_name="HardenCornerModule",
-                signature_name="HardenCornerSignature",
-                attempt=1,
-                visible_inputs={
-                    "mode": mode.value,
-                    "primary_predicate": selection.primary_predicate.text,
-                    "corner": drafts[mode].model_dump(),
-                },
-                blocked_input_fields=BLOCKED_CORNER_FIELDS,
-            )
-            contexts.append((mode, trace_ctx))
-            async_module = dspy.asyncify(self.program.harden_corner.deepcopy())
-            tasks.append(async_module(distilled, selection, drafts[mode]))
-        results = await asyncio.gather(*tasks)
-        hardened = {mode: result for (mode, _), result in zip(contexts, results, strict=True)}
-        traces = [ctx.close(result.model_dump()) for (_, ctx), result in zip(contexts, results, strict=True)]
-        return hardened, traces
+        return views, corners, traces
 
     async def run_async(self, raw_seed: str) -> TetraFrameRunArtifact:
         distilled, traces = self.program._run_stage0(raw_seed)
         selection, trace = self.program._run_stage1(distilled)
         traces.append(trace)
-        corner_inputs, drafts, stage2_traces = await self._generate_corners_async(distilled, selection)
+        corner_inputs, corners, stage2_traces = await self._generate_corners_async(distilled, selection)
         traces.extend(stage2_traces)
-        hardened, stage3_traces = await self._harden_corners_async(distilled, selection, drafts)
-        traces.extend(stage3_traces)
-        cartography, trace = self.program._run_stage4(distilled.run_id, hardened)
+        cartography, trace = self.program._run_stage3(distilled.run_id, corners)
         traces.append(trace)
-        arbiter, trace = self.program._run_stage5(distilled.run_id, hardened, cartography)
+        transformed, trace = self.program._run_stage4(distilled, selection, corners, cartography)
         traces.append(trace)
-        transformed, trace = self.program._run_stage6(distilled, selection, hardened, cartography, arbiter)
-        traces.append(trace)
-        (writing, coding, research, planning), stage7_traces = self.program._run_stage7(distilled.run_id, transformed, cartography)
-        traces.extend(stage7_traces)
         provisional = TetraFrameRunArtifact(
             run_id=distilled.run_id,
             distilled_seed=distilled,
             predicate_selection=selection,
             corner_inputs=corner_inputs,
-            corner_drafts=drafts,
-            hardened_corners=hardened,
+            corners=corners,
             cartography=cartography,
-            arbiter=arbiter,
             transformed_frame=transformed,
-            writing=writing,
-            coding=coding,
-            research=research,
-            planning=planning,
             verification=None,
             traces=traces,
         )
-        verification, trace = self.program._run_stage8(provisional)
+        verification, trace = self.program._run_stage5(provisional)
         traces.append(trace)
         provisional.verification = verification
         provisional.traces = traces

@@ -23,7 +23,7 @@ def test_contamination_score_is_high_on_sample():
 
 def test_both_rigor_penalizes_compromise_language():
     run = build_sample_run_artifact()
-    both = run.hardened_corners[CornerMode.BOTH].model_copy(
+    both = run.corners[CornerMode.BOTH].model_copy(
         update={"strongest_case": "This is a balanced approach and middle ground.", "validity_basis_label": "role_split"}
     )
     assert both_rigor_heuristic(both) < 0.75
@@ -31,7 +31,7 @@ def test_both_rigor_penalizes_compromise_language():
 
 def test_non_averaging_transformation_score_is_high_on_sample():
     run = build_sample_run_artifact()
-    assert non_averaging_transformation_score(run.transformed_frame, run.hardened_corners) >= 0.8
+    assert non_averaging_transformation_score(run.transformed_frame, run.corners) >= 0.8
 
 
 def test_slop_resistance_is_high_on_sample():
@@ -41,15 +41,15 @@ def test_slop_resistance_is_high_on_sample():
 
 def test_verification_suite_penalizes_compromise_and_slop():
     run = build_sample_run_artifact()
-    hardened = dict(run.hardened_corners)
-    for mode, corner in hardened.items():
+    corners = dict(run.corners)
+    for mode, corner in corners.items():
         update = {
             "evidence_needs": ["consider various factors"],
             "tightened_language": "A nuanced and balanced approach helps consider multiple perspectives.",
         }
         if mode == CornerMode.BOTH:
             update["strongest_case"] = "This is a balanced approach and middle ground."
-        hardened[mode] = corner.model_copy(update=update)
+        corners[mode] = corner.model_copy(update=update)
 
     transformed = run.transformed_frame.model_copy(
         update={
@@ -59,7 +59,7 @@ def test_verification_suite_penalizes_compromise_and_slop():
             "operational_tests": [],
         }
     )
-    degraded = run.model_copy(update={"hardened_corners": hardened, "transformed_frame": transformed})
+    degraded = run.model_copy(update={"corners": corners, "transformed_frame": transformed})
 
     suite = VerificationSuite()
     suite.corner_judge = lambda **kwargs: SimpleNamespace(score=0.2, rationale="compromise-like")  # type: ignore[assignment]
@@ -69,4 +69,4 @@ def test_verification_suite_penalizes_compromise_and_slop():
     assert report.transformation_quality.score < 0.82
     assert report.slop_risk.score < 0.70
     assert any("both corner" in recommendation.lower() for recommendation in report.retry_recommendations)
-    assert any("stage 6" in recommendation.lower() for recommendation in report.retry_recommendations)
+    assert any("stage 4" in recommendation.lower() for recommendation in report.retry_recommendations)

@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-A [DSPy](https://dspy.ai/) pipeline that splits a question into four independent positions (tetralemma), then synthesizes them into a single output.
+A [DSPy](https://dspy.ai/) pipeline that splits a question into four independent positions (tetralemma), then synthesizes them into a single output. Each stage is a DSPy module with typed signatures — the whole pipeline is compilable with BootstrapFewShot, MIPROv2, and GEPA.
 
 ```bash
 pip install -e ".[dev]"
@@ -38,22 +38,19 @@ TetraFrame enforces this structurally:
 TetraFrame takes a seed question, decomposes it into four corners, maps their relationships, and synthesizes a result that isn't a compromise between them.
 
 ```
-Seed ─▶ Predicate ─▶ Four Corners ─▶ Harden ─▶ Cartograph ─▶ Arbitrate ─▶ Transform ─▶ Domain Adapt ─▶ Verify
+Seed ─▶ Predicate ─▶ Four Corners ─▶ Cartography ─▶ Transform ─▶ Verify
 ```
 
-Nine stages, run in sequence:
+Six stages, run in sequence:
 
 | # | Stage | Does |
 |---|-------|------|
 | 1 | Seed Distill | Extracts stakes, constraints, unknowns, and hidden assumptions from the input |
 | 2 | Predicate Selection | Picks the operational predicate the four corners will reason about |
-| 3 | Four-Corner Generation | Generates P, not-P, Both, Neither — each in complete isolation |
-| 4 | Hardening | Strengthens each corner, flags "Both" that are actually compromises |
-| 5 | Cartography | Maps overlaps, contradictions, and collapse signals between corners |
-| 6 | Arbitration | Scores corners for rigor, detects near-duplicates and contamination |
-| 7 | Transform | Synthesizes an output from all four corners without averaging them |
-| 8 | Domain Adapt | Reshapes the result into a domain-specific format (code, writing, plan, etc.) |
-| 9 | Verify | Final quality checks against compromise language and fake novelty |
+| 3 | Four Corners | Generates and hardens P, not-P, Both, Neither — each in complete isolation, self-critiqued in one pass |
+| 4 | Cartography | Maps contradictions, complementarities, and collapse signals; produces fair reconstructions and arbiter notes |
+| 5 | Transform | Synthesizes an output from all four corners without averaging them |
+| 6 | Verify | Final quality checks against compromise language and fake novelty |
 
 ## Install
 
@@ -213,9 +210,9 @@ The following is from a real run where TetraFrame analyzed its own pipeline. The
 
 Extracts structure from the raw seed. Output includes stakes, constraints, unknowns, hidden assumptions, and candidate predicates.
 
-**Normalized seed:** TetraFrame is a 9-stage, 20+ LLM call reasoning pipeline built on tetralemmatic decomposition. It faces three separable problems: (A) an unresolved architectural direction — whether to consolidate calls for cost/latency or deepen stage isolation for quality; (B) a verification gap — the current suite detects slop heuristically but cannot distinguish genuine dialectical transformation from sophisticated restatement; and (C) a closed-loop gap — domain adapters produce typed artifacts with no signal returning from downstream consumers to inform upstream stages.
+**Normalized seed:** TetraFrame is a multi-stage LLM call reasoning pipeline built on tetralemmatic decomposition. It faces three separable problems: (A) an unresolved architectural direction — whether to consolidate calls for cost/latency or deepen stage isolation for quality; (B) a verification gap — the current suite detects slop heuristically but cannot distinguish genuine dialectical transformation from sophisticated restatement; and (C) a closed-loop gap — downstream consumers have no signal path back to upstream stages.
 
-**Example hidden assumption:** That 9 stages is the correct granularity — neither too many nor too few — rather than an artifact of how the system was initially built.
+**Example hidden assumption:** That the current stage count is the correct granularity — rather than an artifact of how the system was initially built.
 
 </details>
 
@@ -233,7 +230,7 @@ Picks the operational predicate the four corners will reason about.
 <details>
 <summary><b>Stage 3 — Four Corners</b> (P: 63s, not-P: 129s, Both: 218s, Neither: 306s)</summary>
 
-Each corner is generated in isolation — no corner can see the others.
+Each corner is generated and self-critiqued in isolation — no corner can see the others.
 
 **P:** TetraFrame's pipeline produces outputs measurably distinguishable from sophisticated restatement because tetralemmatic decomposition mechanically requires logical form change, structural novelty, and semantic distance as preconditions for stage completion — not as emergent side effects.
 
@@ -246,34 +243,18 @@ Each corner is generated in isolation — no corner can see the others.
 </details>
 
 <details>
-<summary><b>Stage 4 — Hardening</b> (P: 92s, not-P: 95s, Both: 122s, Neither: 86s)</summary>
+<summary><b>Stage 4 — Cartography</b> (1034s)</summary>
 
-Strengthens each corner. Flags "Both" positions that are actually compromises. Each corner is hardened independently — still no cross-corner visibility.
-
-</details>
-
-<details>
-<summary><b>Stage 5 — Cartography</b> (1034s)</summary>
-
-First stage where all four corners are visible together. Maps pairwise relations across 10 dimensions: contradictions, complementarities, paradoxes, category errors, frame validity, evidence discriminators, invariants, and reversible/irreversible implications.
+First stage where all four corners are visible together. Maps pairwise relations, produces fair reconstructions, and writes arbiter notes.
 
 **Example contradiction (P × not-P):** P's sufficiency claim — classifier > 0.80 on human-labeled examples constitutes validation of genuine transformation — directly contradicts not-P's structural circularity objection: a classifier trained on direct transformation/restatement judgments cannot validate the judgment it is trained to replace.
 
-**Example complementarity (not-P × both):** not-P's three independent objections (circularity, surface-proxy, causal attribution) each ground one element of both's not-P layer. Both extends not-P's analysis by articulating the P layer that not-P does not develop — the structural measurement outcome that is instrumentally achievable.
+**Arbiter notes (excerpt):** The four-corner analysis is not primarily a debate between competing hypotheses about TetraFrame. It is a progressively fine-grained examination of what kind of evidence is meaningful at what ontological altitude. The only genuinely adversarial relation is P × not-P on the actionable empirical question.
 
 </details>
 
 <details>
-<summary><b>Stage 6 — Arbitration</b> (583s)</summary>
-
-Scores corners for rigor, detects near-duplicates and contamination, produces fair reconstructions.
-
-**Arbiter notes (excerpt):** The four-corner analysis is not primarily a debate between competing hypotheses about TetraFrame. It is a progressively fine-grained examination of what kind of evidence is meaningful at what ontological altitude. The only genuinely adversarial relation is P × not-P on the actionable empirical question. All other relations are transformations, dissolutions, or complementarities.
-
-</details>
-
-<details>
-<summary><b>Stage 7 — Transform</b> (379s)</summary>
+<summary><b>Stage 5 — Transform</b> (379s)</summary>
 
 Synthesizes a single output from all four corners without averaging them.
 
@@ -284,16 +265,9 @@ Synthesizes a single output from all four corners without averaging them.
 </details>
 
 <details>
-<summary><b>Stage 8 — Domain Adapt</b></summary>
+<summary><b>Stage 6 — Verify</b> (aggregate: 0.901)</summary>
 
-Adapts the transformed output into four domain-specific formats: writing, coding, research, and planning. Each adapter reshapes the same transformed frame for its target context.
-
-</details>
-
-<details>
-<summary><b>Stage 9 — Verify</b> (aggregate: 0.901)</summary>
-
-Runs quality checks across 10 metrics. This run scored:
+Runs quality checks across 9 metrics. This run scored:
 
 | Metric | Score | Pass |
 |---|---|---|
@@ -303,7 +277,6 @@ Runs quality checks across 10 metrics. This run scored:
 | Rigor of Neither | 0.938 | yes |
 | Contradiction honesty | 1.000 | yes |
 | Transformation quality | 1.000 | yes |
-| Actionability | 1.000 | yes |
 | Robustness | 0.879 | yes |
 | Fake novelty risk | 0.400 | **no** |
 | Slop risk | 0.884 | yes |
@@ -338,7 +311,7 @@ model:
 
 ```
 src/tetraframe/
-  pipeline.py              # 9-stage tetralemmatic pipeline
+  pipeline.py              # 6-stage tetralemmatic pipeline
   modules.py               # DSPy modules (one per stage)
   signatures.py            # DSPy signatures
   artifacts.py             # Typed run artifacts

@@ -6,7 +6,7 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, Field
 
-from tetraframe.artifacts import CornerMode, CornerDraftArtifact, HardenedCornerArtifact, TetraFrameRunArtifact
+from tetraframe.artifacts import CornerMode, CornerArtifact, TetraFrameRunArtifact
 from tetraframe.metrics import benchmark_score_breakdown, benchmark_success
 from tetraframe.pipeline import TetraFrameProgram, build_runtime_runner
 
@@ -19,7 +19,6 @@ class BenchmarkExample(BaseModel):
     expected_neither_failure_modes: list[str] = Field(default_factory=list)
     expected_transformed_predicate_contains: list[str] = Field(default_factory=list)
     banned_transformed_phrases: list[str] = Field(default_factory=list)
-    expected_domain_markers: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class BenchmarkResult(BaseModel):
@@ -70,8 +69,8 @@ class BenchmarkHarness:
             aggregate_score=score,
             verification_score=run.verification.aggregate_score,
             transformed_predicate=run.transformed_frame.transformed_predicate,
-            both_basis=run.hardened_corners[CornerMode.BOTH].validity_basis_label,
-            neither_failure_mode=run.hardened_corners[CornerMode.NEITHER].validity_basis_label,
+            both_basis=run.corners[CornerMode.BOTH].validity_basis_label,
+            neither_failure_mode=run.corners[CornerMode.NEITHER].validity_basis_label,
             score_breakdown=breakdown,
             failed_expectations=failures,
             passed=score >= self.pass_threshold,
@@ -83,12 +82,10 @@ class BenchmarkHarness:
             return {"mean_score": 0.0, "count": 0, "pass_threshold": pass_threshold, "pass_rate": 0.0}
         mean_score = sum(r.aggregate_score for r in results) / len(results)
         verification_mean = sum(r.verification_score for r in results) / len(results)
-        domain_marker_mean = sum(r.score_breakdown.get("domain_markers", 0.0) for r in results) / len(results)
         return {
             "count": len(results),
             "mean_score": round(mean_score, 3),
             "mean_verification_score": round(verification_mean, 3),
-            "mean_domain_marker_score": round(domain_marker_mean, 3),
             "pass_threshold": round(pass_threshold, 3),
             "pass_rate": round(sum(r.aggregate_score >= pass_threshold for r in results) / len(results), 3),
             "passed_examples": sum(r.passed for r in results),
@@ -105,14 +102,11 @@ class BenchmarkHarness:
 
     def _make_ablation(self, mode: str) -> TetraFrameProgram:
         ablated = self.program.deepcopy()
-        if mode == "no_hardening":
-            ablated.harden_corner = lambda distilled, selection, draft: _draft_to_unhardened_corner(draft)  # type: ignore[assignment]
-        elif mode == "no_both":
+        if mode == "no_both":
             ablated.corner_generators[CornerMode.BOTH] = ablated.corner_generators[CornerMode.P]
         elif mode == "no_neither":
             ablated.corner_generators[CornerMode.NEITHER] = ablated.corner_generators[CornerMode.NOT_P]
         elif mode == "shared_context_corners":
-            # Intentionally bad ablation: reuse a single generator class and later compare contamination metrics.
             shared = ablated.corner_generators[CornerMode.P]
             ablated.corner_generators = {
                 CornerMode.P: shared,
@@ -131,21 +125,6 @@ class BenchmarkHarness:
                 "invariant_map": [],
             })  # type: ignore[assignment]
         return ablated
-
-
-def _draft_to_unhardened_corner(draft: CornerDraftArtifact) -> HardenedCornerArtifact:
-    return HardenedCornerArtifact(
-        **draft.model_dump(),
-        internal_attack=["hardening ablated"],
-        patched_claim=draft.core_claim,
-        patched_assumptions=list(draft.assumptions),
-        clarified_scope_conditions=list(draft.scope_conditions),
-        confidence_boundaries=[],
-        minimal_falsifiers=list(draft.falsifiers),
-        tightened_language=draft.strongest_case,
-        unresolved_weaknesses=["hardening removed"],
-        confidence_score=0.4,
-    )
 
 
 def save_benchmark_report(path: str | Path, results: list[BenchmarkResult], *, pass_threshold: float = 0.75) -> None:

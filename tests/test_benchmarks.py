@@ -19,13 +19,11 @@ def test_benchmark_harness_scores_example():
         expected_transformed_predicate_contains=["exploration", "synthesis"],
         allowed_both_basis=["role_split"],
         expected_neither_failure_modes=["overloaded_predicate"],
-        expected_domain_markers={"coding": ["interfaces", "tests"], "planning": ["decision_thresholds"]},
     )
     results = harness.run([example])
     assert len(results) == 1
     assert results[0].aggregate_score >= 0.75
     assert results[0].score_breakdown["primary_predicate"] == 1.0
-    assert results[0].score_breakdown["domain_markers"] == 1.0
     assert results[0].passed is True
 
 

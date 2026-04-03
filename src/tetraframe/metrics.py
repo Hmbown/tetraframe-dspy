@@ -10,8 +10,8 @@ import tetraframe.dspy_compat as dspy
 
 from tetraframe.artifacts import (
     CartographyArtifact,
+    CornerArtifact,
     CornerMode,
-    HardenedCornerArtifact,
     TetraFrameRunArtifact,
     TransformedFrameArtifact,
     VerificationMetricArtifact,
@@ -20,7 +20,6 @@ from tetraframe.artifacts import (
 from tetraframe.guards import incompatible_pairs, pairwise_similarity, residual_tokens
 from tetraframe.signatures import (
     CornerRigorJudgeSignature,
-    DomainUsefulnessJudgeSignature,
     TransformationJudgeSignature,
 )
 
@@ -74,20 +73,18 @@ class VerificationSuite:
     def __init__(self):
         self.corner_judge = dspy.Predict(CornerRigorJudgeSignature)
         self.transform_judge = dspy.Predict(TransformationJudgeSignature)
-        self.domain_judge = dspy.Predict(DomainUsefulnessJudgeSignature)
 
     def verify(self, run: TetraFrameRunArtifact) -> VerificationReportArtifact:
+        corners = run.corners
         branch_independence = self.branch_independence(run)
         divergence_quality = self.divergence_quality(run)
-        rigor_of_both = self.rigor_of_both(run.hardened_corners[CornerMode.BOTH])
-        rigor_of_neither = self.rigor_of_neither(run.hardened_corners[CornerMode.NEITHER])
+        rigor_of_both = self.rigor_of_both(corners[CornerMode.BOTH])
+        rigor_of_neither = self.rigor_of_neither(corners[CornerMode.NEITHER])
         contradiction_honesty = self.contradiction_honesty(run)
-        transformation_quality = self.transformation_quality(run.transformed_frame, run.hardened_corners)
-        actionability = self.actionability(run)
+        transformation_quality = self.transformation_quality(run.transformed_frame, corners)
         robustness = self.robustness(run)
         fake_novelty_risk = self.fake_novelty_risk(run)
         slop_risk = self.slop_risk(run)
-        adapter_feedback = self.domain_adapter_feedback(run)
 
         metrics = {
             "branch_independence": branch_independence,
@@ -96,11 +93,9 @@ class VerificationSuite:
             "rigor_of_neither": rigor_of_neither,
             "contradiction_honesty": contradiction_honesty,
             "transformation_quality": transformation_quality,
-            "actionability": actionability,
             "robustness": robustness,
             "fake_novelty_risk": fake_novelty_risk,
             "slop_risk": slop_risk,
-            "domain_adapter_feedback": adapter_feedback,
         }
         aggregate = round(sum(m.score for m in metrics.values()) / len(metrics), 3)
 
@@ -112,11 +107,7 @@ class VerificationSuite:
         if rigor_of_neither.score < 0.78:
             retry_recommendations.append("Retry the neither corner with a stricter frame-failure diagnosis.")
         if transformation_quality.score < 0.82:
-            retry_recommendations.append("Retry stage 6 with non-averaging pressure and arbiter-derived invariants.")
-        if actionability.score < 0.75:
-            retry_recommendations.append("Retry domain adapters for missing interfaces, thresholds, experiments, or plans.")
-        if adapter_feedback.score < 0.60:
-            retry_recommendations.append("Domain adapters do not address P*'s operational tests — retry stage 7 with operational test references.")
+            retry_recommendations.append("Retry stage 4 with non-averaging pressure and cartography-derived invariants.")
 
         return VerificationReportArtifact(
             branch_independence=self._to_metric(branch_independence, threshold=0.90),
@@ -125,11 +116,9 @@ class VerificationSuite:
             rigor_of_neither=self._to_metric(rigor_of_neither, threshold=0.78),
             contradiction_honesty=self._to_metric(contradiction_honesty, threshold=0.75),
             transformation_quality=self._to_metric(transformation_quality, threshold=0.82),
-            actionability=self._to_metric(actionability, threshold=0.75),
             robustness=self._to_metric(robustness, threshold=0.70),
             fake_novelty_risk=self._to_metric(fake_novelty_risk, threshold=0.70),
             slop_risk=self._to_metric(slop_risk, threshold=0.70),
-            domain_adapter_feedback=self._to_metric(adapter_feedback, threshold=0.60),
             aggregate_score=aggregate,
             retry_recommendations=retry_recommendations,
         )
@@ -154,14 +143,14 @@ class VerificationSuite:
         )
         return ScoreWithReason(score, rationale)
 
-    def rigor_of_both(self, corner: HardenedCornerArtifact) -> ScoreWithReason:
+    def rigor_of_both(self, corner: CornerArtifact) -> ScoreWithReason:
         heuristic = both_rigor_heuristic(corner)
         if heuristic >= 0.85:
             return ScoreWithReason(heuristic, "Heuristic pass: valid split basis, explicit co-holding conditions, no compromise markers.")
         pred = self.corner_judge(corner_mode="both", corner_json=corner.model_dump_json())
         return ScoreWithReason(float(pred.score), pred.rationale)
 
-    def rigor_of_neither(self, corner: HardenedCornerArtifact) -> ScoreWithReason:
+    def rigor_of_neither(self, corner: CornerArtifact) -> ScoreWithReason:
         heuristic = neither_rigor_heuristic(corner)
         if heuristic >= 0.85:
             return ScoreWithReason(heuristic, "Heuristic pass: explicit failure mode, frame diagnosis, and replacement predicate/frame present.")
@@ -179,39 +168,16 @@ class VerificationSuite:
     def transformation_quality(
         self,
         frame: TransformedFrameArtifact,
-        corners: dict[CornerMode, HardenedCornerArtifact],
+        corners: dict[CornerMode, CornerArtifact],
     ) -> ScoreWithReason:
         heuristic = non_averaging_transformation_score(frame, corners)
         if heuristic >= 0.88:
             return ScoreWithReason(heuristic, "Heuristic pass: transformed predicate is not compromise text and includes survival/dissolution mappings.")
         pred = self.transform_judge(
             transformed_frame_json=frame.model_dump_json(),
-            hardened_corners_json=json.dumps({k.value: v.model_dump() for k, v in corners.items()}, ensure_ascii=False),
+            corners_json=json.dumps({k.value: v.model_dump() for k, v in corners.items()}, ensure_ascii=False),
         )
         return ScoreWithReason(float(pred.score), pred.rationale)
-
-    def actionability(self, run: TetraFrameRunArtifact) -> ScoreWithReason:
-        scores: list[float] = []
-        reasons: list[str] = []
-        for domain, artifact in {
-            "writing": run.writing,
-            "coding": run.coding,
-            "research": run.research,
-            "planning": run.planning,
-        }.items():
-            heuristic = domain_usefulness_heuristic(domain, artifact.model_dump())
-            if heuristic < 0.75:
-                pred = self.domain_judge(
-                    domain=domain,
-                    artifact_json=artifact.model_dump_json(),
-                    transformed_frame_json=run.transformed_frame.model_dump_json(),
-                )
-                scores.append(float(pred.score))
-                reasons.append(f"{domain}: {pred.rationale}")
-            else:
-                scores.append(heuristic)
-                reasons.append(f"{domain}: heuristic pass")
-        return ScoreWithReason(sum(scores) / len(scores), " | ".join(reasons))
 
     def robustness(self, run: TetraFrameRunArtifact) -> ScoreWithReason:
         score = robustness_heuristic(run)
@@ -224,10 +190,6 @@ class VerificationSuite:
     def slop_risk(self, run: TetraFrameRunArtifact) -> ScoreWithReason:
         score = slop_resistance(run)
         return ScoreWithReason(score, f"Penalizes mushy language and empty discriminators. Score={score:.3f}.")
-
-    def domain_adapter_feedback(self, run: TetraFrameRunArtifact) -> ScoreWithReason:
-        score = domain_adapter_feedback_score(run)
-        return ScoreWithReason(score, f"Checks domain adapters reference P*'s operational tests and failure modes. Score={score:.3f}.")
 
 
 def _mean(values: Iterable[float]) -> float:
@@ -248,7 +210,7 @@ def evidence_specificity_score(items: list[str]) -> float:
     return round(_mean(hits), 3)
 
 
-def falsifier_quality_score(corner: HardenedCornerArtifact) -> float:
+def falsifier_quality_score(corner: CornerArtifact) -> float:
     if not corner.minimal_falsifiers:
         return 0.0
     directness = _mean(1.0 if len(f.split()) >= 5 else 0.5 for f in corner.minimal_falsifiers)
@@ -256,7 +218,7 @@ def falsifier_quality_score(corner: HardenedCornerArtifact) -> float:
     return round((directness + specificity) / 2.0, 3)
 
 
-def internal_coherence_score(corner: HardenedCornerArtifact) -> float:
+def internal_coherence_score(corner: CornerArtifact) -> float:
     components = [
         1.0 if corner.patched_claim.strip() else 0.0,
         1.0 if corner.clarified_scope_conditions else 0.0,
@@ -267,7 +229,7 @@ def internal_coherence_score(corner: HardenedCornerArtifact) -> float:
 
 
 def corner_divergence_score(run: TetraFrameRunArtifact) -> float:
-    corners = run.hardened_corners
+    corners = run.corners
     seed_text = run.distilled_seed.normalized_project_seed
     incompatible = []
     for left, right in incompatible_pairs():
@@ -306,13 +268,13 @@ def corner_contamination_score(run: TetraFrameRunArtifact) -> float:
         return 0.5
     view_penalty = 1.0 if any(t.blocked_input_fields and set(t.visible_input_fields) & set(t.blocked_input_fields) for t in traces) else 0.0
     cross_ref_penalty = _mean(
-        explicit_cross_reference_count(c.core_claim + " " + c.strongest_case) / 2.0 for c in run.corner_drafts.values()
+        explicit_cross_reference_count(c.core_claim + " " + c.strongest_case) / 2.0 for c in run.corners.values()
     )
     seed_text = run.distilled_seed.normalized_project_seed
     pair_penalties = []
     for left, right in incompatible_pairs():
-        a = run.corner_drafts[left].core_claim
-        b = run.corner_drafts[right].core_claim
+        a = run.corners[left].core_claim
+        b = run.corners[right].core_claim
         sim = pairwise_similarity(
             " ".join(sorted(residual_tokens(a, seed_text))),
             " ".join(sorted(residual_tokens(b, seed_text))),
@@ -322,7 +284,7 @@ def corner_contamination_score(run: TetraFrameRunArtifact) -> float:
     return round(max(0.0, score), 3)
 
 
-def both_rigor_heuristic(corner: HardenedCornerArtifact) -> float:
+def both_rigor_heuristic(corner: CornerArtifact) -> float:
     allowed_basis = {
         "temporal_split",
         "scale_split",
@@ -340,7 +302,7 @@ def both_rigor_heuristic(corner: HardenedCornerArtifact) -> float:
     return round(score, 3)
 
 
-def neither_rigor_heuristic(corner: HardenedCornerArtifact) -> float:
+def neither_rigor_heuristic(corner: CornerArtifact) -> float:
     allowed_failure_modes = {
         "category_error",
         "false_binary",
@@ -369,7 +331,7 @@ def contradiction_honesty_score(cartography: CartographyArtifact) -> float:
 
 def non_averaging_transformation_score(
     frame: TransformedFrameArtifact,
-    corners: dict[CornerMode, HardenedCornerArtifact],
+    corners: dict[CornerMode, CornerArtifact],
 ) -> float:
     compromise_hit = any(marker in frame.transformed_frame.lower() or marker in frame.transformed_predicate.lower() for marker in COMPROMISE_MARKERS)
     required_fields = [
@@ -393,42 +355,6 @@ def non_averaging_transformation_score(
     return round(max(0.0, min(1.0, score)), 3)
 
 
-def domain_usefulness_heuristic(domain: str, artifact: dict[str, Any]) -> float:
-    required_fields = {
-        "writing": ["central_claim", "rival_readings", "tension_map", "outline", "voice_options", "stress_test", "revision_plan"],
-        "coding": ["architecture", "modules", "interfaces", "state_model", "verification_loop", "tests", "failure_modes", "iteration_plan"],
-        "research": ["competing_hypotheses", "discriminating_experiments", "evidence_agenda", "confound_map", "interpretation_grid", "next_step_program"],
-        "planning": ["option_set", "leverage_points", "decision_thresholds", "scenario_map", "reversibility_map", "execution_phases", "monitoring_plan"],
-    }[domain]
-    present = []
-    specificity = []
-    for field in required_fields:
-        value = artifact.get(field)
-        present.append(1.0 if value else 0.0)
-        if isinstance(value, list):
-            texts = [str(item) for item in value if str(item).strip()]
-        elif value:
-            texts = [str(value)]
-        else:
-            texts = []
-        if not texts:
-            specificity.append(0.0)
-            continue
-        specificity.append(
-            _mean(
-                1.0
-                if (
-                    len(text.split()) >= 4
-                    or any(marker in text.lower() for marker in OBSERVABLE_MARKERS)
-                    or any(marker in text for marker in [":", "->", "_"])
-                )
-                else 0.35
-                for text in texts
-            )
-        )
-    return round(0.55 * _mean(present) + 0.45 * _mean(specificity), 3)
-
-
 def robustness_heuristic(run: TetraFrameRunArtifact) -> float:
     frame = run.transformed_frame
     coverage = _mean(
@@ -439,66 +365,26 @@ def robustness_heuristic(run: TetraFrameRunArtifact) -> float:
             1.0 if run.cartography.irreversible_implications else 0.0,
         ]
     )
-    confidence = _mean(c.confidence_score for c in run.hardened_corners.values())
+    confidence = _mean(c.confidence_score for c in run.corners.values())
     return round(0.6 * coverage + 0.4 * min(1.0, confidence), 3)
-
-
-def domain_adapter_feedback_score(run: TetraFrameRunArtifact) -> float:
-    """Check whether domain adapters are responsive to P*'s operational tests and failure modes.
-
-    This closes the feedback loop the seed identified as missing: domain adapters
-    produce typed artifacts but had no way to verify they actually address what P*
-    specified.  The metric checks whether adapter outputs reference terms from
-    the operational tests, boundary conditions, and failure modes defined by P*.
-    """
-    frame = run.transformed_frame
-    # Build the set of distinctive terms from P*'s operational tests and failure modes
-    reference_parts = (
-        frame.operational_tests
-        + frame.boundary_conditions
-        + frame.failure_modes
-    )
-    if not reference_parts:
-        return 0.5  # P* didn't specify operational tests — inconclusive
-
-    reference_tokens = set()
-    for part in reference_parts:
-        reference_tokens.update(t.lower() for t in re.findall(r"[a-zA-Z_]+", part) if len(t) > 4)
-
-    if not reference_tokens:
-        return 0.5
-
-    # Check each domain adapter for references to P*'s operational vocabulary
-    domain_scores = []
-    for adapter in [run.writing, run.coding, run.research, run.planning]:
-        adapter_text = json.dumps(adapter.model_dump(), ensure_ascii=False).lower()
-        adapter_tokens = set(re.findall(r"[a-zA-Z_]+", adapter_text))
-        overlap = reference_tokens & adapter_tokens
-        coverage = len(overlap) / len(reference_tokens) if reference_tokens else 0.0
-        domain_scores.append(min(1.0, coverage * 1.5))  # Scale so 67% coverage = 1.0
-
-    return round(_mean(domain_scores), 3)
 
 
 def fake_novelty_resistance(run: TetraFrameRunArtifact) -> float:
     frame_tokens = set(re.findall(r"[a-zA-Z_]+", run.transformed_frame.transformed_predicate.lower()))
-    # Include all reasoning artifacts as valid source material — P* synthesizes
-    # from corners, arbiter notes, cartography, and the transformed frame's own
-    # survival/dissolution mappings, not just the primary predicate.
     source_parts = [
         run.predicate_selection.primary_predicate.text,
         run.distilled_seed.normalized_project_seed,
-        *(c.patched_claim for c in run.hardened_corners.values()),
-        *(c.strongest_case for c in run.hardened_corners.values()),
-        *(c.tightened_language for c in run.hardened_corners.values()),
-        *(c.replacement_predicate for c in run.hardened_corners.values()),
-        *(c.replacement_frame for c in run.hardened_corners.values()),
+        *(c.patched_claim for c in run.corners.values()),
+        *(c.strongest_case for c in run.corners.values()),
+        *(c.tightened_language for c in run.corners.values()),
+        *(c.replacement_predicate for c in run.corners.values()),
+        *(c.replacement_frame for c in run.corners.values()),
         *run.cartography.invariant_map,
         *run.cartography.category_error_map,
         *run.cartography.frame_validity_map,
-        run.arbiter.arbiter_notes,
-        *run.arbiter.transformation,
-        *run.arbiter.dissolution,
+        run.cartography.arbiter_notes,
+        *run.cartography.transformation,
+        *run.cartography.dissolution,
         *run.transformed_frame.survivors_from_p,
         *run.transformed_frame.survivors_from_not_p,
         *run.transformed_frame.hidden_structure_from_both,
@@ -509,7 +395,6 @@ def fake_novelty_resistance(run: TetraFrameRunArtifact) -> float:
     def _is_supported(token: str) -> bool:
         if token in source_tokens:
             return True
-        # Check if the token is a compound of source tokens (e.g. "preregistered" = "pre" + "registered")
         for src in source_tokens:
             if len(src) > 3 and src in token:
                 return True
@@ -523,7 +408,7 @@ def slop_resistance(run: TetraFrameRunArtifact) -> float:
     texts = [
         run.transformed_frame.transformed_frame,
         run.transformed_frame.non_averaging_explanation,
-        *(c.tightened_language for c in run.hardened_corners.values()),
+        *(c.tightened_language for c in run.corners.values()),
     ]
     token_count = 0
     mush_count = 0
@@ -532,7 +417,7 @@ def slop_resistance(run: TetraFrameRunArtifact) -> float:
         token_count += len(tokens)
         mush_count += sum(token in MUSH_WORDS for token in tokens)
     mush_ratio = 0.0 if token_count == 0 else mush_count / token_count
-    evidence = _mean(evidence_specificity_score(c.evidence_needs) for c in run.hardened_corners.values())
+    evidence = _mean(evidence_specificity_score(c.evidence_needs) for c in run.corners.values())
     score = max(0.0, 1.0 - 3.0 * mush_ratio)
     score = 0.5 * score + 0.5 * evidence
     return round(score, 3)
@@ -605,24 +490,6 @@ def _term_hit_score(text: str, expected_terms: list[str]) -> float:
     return round(_mean(1.0 if term.lower() in lowered else 0.0 for term in expected_terms), 3)
 
 
-def _domain_marker_score(run: TetraFrameRunArtifact, expected_domain_markers: dict[str, list[str]]) -> float:
-    if not expected_domain_markers:
-        return 0.0
-    domain_payloads = {
-        "writing": json.dumps(run.writing.model_dump(), ensure_ascii=False).lower(),
-        "coding": json.dumps(run.coding.model_dump(), ensure_ascii=False).lower(),
-        "research": json.dumps(run.research.model_dump(), ensure_ascii=False).lower(),
-        "planning": json.dumps(run.planning.model_dump(), ensure_ascii=False).lower(),
-    }
-    per_domain_scores = []
-    for domain, markers in expected_domain_markers.items():
-        payload = domain_payloads.get(domain, "")
-        if not markers:
-            continue
-        per_domain_scores.append(_term_hit_score(payload, markers))
-    return round(_mean(per_domain_scores), 3)
-
-
 def benchmark_score_breakdown(run: TetraFrameRunArtifact, gold: Any) -> tuple[dict[str, float], list[str]]:
     transformed_payload = " ".join(
         [
@@ -649,24 +516,17 @@ def benchmark_score_breakdown(run: TetraFrameRunArtifact, gold: Any) -> tuple[di
 
     allowed_both_basis = list(getattr(gold, "allowed_both_basis", []))
     if allowed_both_basis:
-        score = 1.0 if run.hardened_corners[CornerMode.BOTH].validity_basis_label in allowed_both_basis else 0.0
+        score = 1.0 if run.corners[CornerMode.BOTH].validity_basis_label in allowed_both_basis else 0.0
         breakdown["both_basis"] = score
         if score < 1.0:
             failures.append("both corner used a disallowed basis")
 
     expected_neither_modes = list(getattr(gold, "expected_neither_failure_modes", []))
     if expected_neither_modes:
-        score = 1.0 if run.hardened_corners[CornerMode.NEITHER].validity_basis_label in expected_neither_modes else 0.0
+        score = 1.0 if run.corners[CornerMode.NEITHER].validity_basis_label in expected_neither_modes else 0.0
         breakdown["neither_failure_mode"] = score
         if score < 1.0:
             failures.append("neither corner used an unexpected failure mode")
-
-    domain_markers = dict(getattr(gold, "expected_domain_markers", {}))
-    if domain_markers:
-        score = _domain_marker_score(run, domain_markers)
-        breakdown["domain_markers"] = score
-        if score < 1.0:
-            failures.append("domain adapters missed expected markers")
 
     banned_phrases = list(getattr(gold, "banned_transformed_phrases", []))
     if banned_phrases:
@@ -699,8 +559,6 @@ def gepa_feedback_metric(gold: Any, pred: Any, trace=None, pred_name=None, pred_
             deficits.append("neither fails to diagnose the frame or replace it")
         if pred.verification.transformation_quality.score < 0.82:
             deficits.append("P* looks averaged rather than transformed")
-        if pred.verification.actionability.score < 0.75:
-            deficits.append("domain adapters are generic")
         feedback = " ; ".join(deficits) if deficits else "Trajectory is structurally strong. Preserve rigor and specificity."
         return {"score": score, "feedback": feedback}
     return {"score": 0.0, "feedback": "Prediction was not a TetraFrameRunArtifact."}

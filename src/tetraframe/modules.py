@@ -7,15 +7,13 @@ from typing import Any, Iterable
 import tetraframe.dspy_compat as dspy
 
 from tetraframe.artifacts import (
-    ArbiterArtifact,
     CartographyArtifact,
-    CornerDraftArtifact,
+    CornerArtifact,
     CornerInputView,
     CornerMode,
     CornerReconstructionArtifact,
     DistilledSeedArtifact,
     EvidenceDiscriminatorArtifact,
-    HardenedCornerArtifact,
     PairwiseRelationArtifact,
     PredicateSelectionArtifact,
     PredicateSpec,
@@ -23,26 +21,16 @@ from tetraframe.artifacts import (
     RelationType,
     TetraFrameRunArtifact,
     TransformedFrameArtifact,
-    WritingAdapterArtifact,
-    CodingAdapterArtifact,
-    ResearchAdapterArtifact,
-    PlanningAdapterArtifact,
 )
-from tetraframe.guards import cartography_summary, parse_json_field
-from tetraframe.metrics import VerificationSuite, hardening_reward, transform_reward
+from tetraframe.guards import parse_json_field
+from tetraframe.metrics import VerificationSuite, transform_reward
 from tetraframe.signatures import (
-    AdaptCodingSignature,
-    AdaptPlanningSignature,
-    AdaptResearchSignature,
-    AdaptWritingSignature,
     ChoosePredicateSignature,
-    FourCornerArbiterSignature,
     GenerateCornerBothSignature,
     GenerateCornerNeitherSignature,
     GenerateCornerNotPSignature,
     GenerateCornerPSignature,
     GlobalCartographySignature,
-    HardenCornerSignature,
     PairwiseRelationSignature,
     SeedDistillSignature,
     SplitPredicateSignature,
@@ -125,6 +113,7 @@ class PredicateSelectModule(dspy.Module):
 
 
 class CornerGeneratorBase(dspy.Module):
+    """Generate and harden a corner position in a single pass."""
     signature_cls = None
     mode: CornerMode | None = None
 
@@ -134,11 +123,12 @@ class CornerGeneratorBase(dspy.Module):
             raise ValueError("signature_cls and mode must be defined")
         self.predict = dspy.ChainOfThought(self.signature_cls)
 
-    def forward(self, view: CornerInputView, **config: Any) -> CornerDraftArtifact:
+    def forward(self, view: CornerInputView, **config: Any) -> CornerArtifact:
         payload = view.model_dump(exclude={"run_id", "corner_mode", "corner_contract"})
         pred = self.predict(**payload, **({"config": config} if config else {}))
         data = dict(
             corner_mode=self.mode,
+            # Generation fields
             core_claim=pred.core_claim,
             assumptions=list(pred.assumptions),
             strongest_case=pred.strongest_case,
@@ -151,8 +141,20 @@ class CornerGeneratorBase(dspy.Module):
             validity_basis_explanation=pred.validity_basis_explanation,
             replacement_predicate=getattr(pred, "replacement_predicate", "") or "",
             replacement_frame=getattr(pred, "replacement_frame", "") or "",
+            # Hardening fields
+            internal_attack=list(getattr(pred, "internal_attack", []) or []),
+            patched_claim=getattr(pred, "patched_claim", "") or "",
+            patched_assumptions=list(getattr(pred, "patched_assumptions", []) or []),
+            clarified_scope_conditions=list(getattr(pred, "clarified_scope_conditions", []) or []),
+            confidence_boundaries=list(getattr(pred, "confidence_boundaries", []) or []),
+            minimal_falsifiers=list(getattr(pred, "minimal_falsifiers", []) or []),
+            tightened_language=getattr(pred, "tightened_language", "") or "",
+            unresolved_weaknesses=list(getattr(pred, "unresolved_weaknesses", []) or []),
+            confidence_score=float(getattr(pred, "confidence_score", 0.5) or 0.5),
+            still_valid_after_hardening=bool(getattr(pred, "still_valid_after_hardening", True)),
+            invalidity_reason=getattr(pred, "invalidity_reason", "") or "",
         )
-        return CornerDraftArtifact(**data)
+        return CornerArtifact(**data)
 
 
 class CornerPGenerator(CornerGeneratorBase):
@@ -175,53 +177,6 @@ class CornerNeitherGenerator(CornerGeneratorBase):
     mode = CornerMode.NEITHER
 
 
-class HardenCornerModule(dspy.Module):
-    def __init__(self):
-        super().__init__()
-        base = dspy.ChainOfThought(HardenCornerSignature)
-        self.refine = dspy.Refine(module=base, N=2, reward_fn=hardening_reward, threshold=0.82)
-
-    def forward(
-        self,
-        distilled: DistilledSeedArtifact,
-        selection: PredicateSelectionArtifact,
-        corner: CornerDraftArtifact,
-        **config: Any,
-    ) -> HardenedCornerArtifact:
-        pred = self.refine(
-            corner_mode=corner.corner_mode.value,
-            normalized_project_seed=distilled.normalized_project_seed,
-            primary_predicate=selection.primary_predicate.text,
-            core_claim=corner.core_claim,
-            assumptions=corner.assumptions,
-            strongest_case=corner.strongest_case,
-            scope_conditions=corner.scope_conditions,
-            falsifiers=corner.falsifiers,
-            evidence_needs=corner.evidence_needs,
-            uncertainty=corner.uncertainty,
-            unique_signal=corner.unique_signal,
-            validity_basis_label=corner.validity_basis_label,
-            validity_basis_explanation=corner.validity_basis_explanation,
-            replacement_predicate=corner.replacement_predicate,
-            replacement_frame=corner.replacement_frame,
-            **({"config": config} if config else {}),
-        )
-        return HardenedCornerArtifact(
-            **corner.model_dump(),
-            internal_attack=list(pred.internal_attack),
-            patched_claim=pred.patched_claim,
-            patched_assumptions=list(pred.patched_assumptions),
-            clarified_scope_conditions=list(pred.clarified_scope_conditions),
-            confidence_boundaries=list(pred.confidence_boundaries),
-            minimal_falsifiers=list(pred.minimal_falsifiers),
-            tightened_language=pred.tightened_language,
-            unresolved_weaknesses=list(pred.unresolved_weaknesses),
-            confidence_score=float(pred.confidence_score),
-            still_valid_after_hardening=bool(pred.still_valid_after_hardening),
-            invalidity_reason=pred.invalidity_reason,
-        )
-
-
 class PairwiseCornerRelator(dspy.Module):
     def __init__(self):
         super().__init__()
@@ -229,8 +184,8 @@ class PairwiseCornerRelator(dspy.Module):
 
     def forward(
         self,
-        source: HardenedCornerArtifact,
-        target: HardenedCornerArtifact,
+        source: CornerArtifact,
+        target: CornerArtifact,
         **config: Any,
     ) -> PairwiseRelationArtifact:
         pred = self.predict(
@@ -250,18 +205,20 @@ class PairwiseCornerRelator(dspy.Module):
 
 
 class CartographCornersModule(dspy.Module):
+    """Map cross-corner relationships and produce arbiter judgments in a single pass."""
+
     def __init__(self):
         super().__init__()
         self.relator = PairwiseCornerRelator()
         self.global_map = dspy.ChainOfThought(GlobalCartographySignature)
 
-    def forward(self, corners: dict[CornerMode, HardenedCornerArtifact], **config: Any) -> CartographyArtifact:
+    def forward(self, corners: dict[CornerMode, CornerArtifact], **config: Any) -> CartographyArtifact:
         relations = []
         ordered = [CornerMode.P, CornerMode.NOT_P, CornerMode.BOTH, CornerMode.NEITHER]
         for left, right in combinations(ordered, 2):
             relations.append(self.relator(corners[left], corners[right], **config))
         pred = self.global_map(
-            hardened_corners_json=_json_dump({k.value: v.model_dump() for k, v in corners.items()}),
+            corners_json=_json_dump({k.value: v.model_dump() for k, v in corners.items()}),
             pairwise_relations_json=_json_dump([r.model_dump() for r in relations]),
             **({"config": config} if config else {}),
         )
@@ -270,6 +227,10 @@ class CartographCornersModule(dspy.Module):
             for x in parse_json_field(pred.evidence_discriminator_map_json, [])
         ]
         structural_miss = parse_json_field(pred.structural_miss_map_json, {})
+        reconstructions = [
+            CornerReconstructionArtifact.model_validate(x)
+            for x in parse_json_field(pred.reconstructions_json, [])
+        ]
         return CartographyArtifact(
             pairwise_relations=relations,
             contradiction_map=list(pred.contradiction_map),
@@ -282,35 +243,8 @@ class CartographCornersModule(dspy.Module):
             reversible_implications=list(pred.reversible_implications),
             irreversible_implications=list(pred.irreversible_implications),
             structural_miss_map=structural_miss,
-        )
-
-
-class FourCornerArbiterModule(dspy.Module):
-    def __init__(self):
-        super().__init__()
-        self.predict = dspy.ChainOfThought(FourCornerArbiterSignature)
-
-    def forward(
-        self,
-        corners: dict[CornerMode, HardenedCornerArtifact],
-        cartography: CartographyArtifact,
-        **config: Any,
-    ) -> ArbiterArtifact:
-        pred = self.predict(
-            hardened_corners_json=_json_dump({k.value: v.model_dump() for k, v in corners.items()}),
-            cartography_json=cartography.model_dump_json(),
-            **({"config": config} if config else {}),
-        )
-        reconstructions = [
-            CornerReconstructionArtifact.model_validate(x)
-            for x in parse_json_field(pred.reconstructions_json, [])
-        ]
-        return ArbiterArtifact(
+            # Arbiter fields
             reconstructions=reconstructions,
-            opposition=list(pred.opposition),
-            contradiction=list(pred.contradiction),
-            complementarity=list(pred.complementarity),
-            paradox=list(pred.paradox),
             dissolution=list(pred.dissolution),
             transformation=list(pred.transformation),
             arbiter_notes=pred.arbiter_notes,
@@ -327,16 +261,14 @@ class TransformFrameModule(dspy.Module):
         self,
         distilled: DistilledSeedArtifact,
         selection: PredicateSelectionArtifact,
-        corners: dict[CornerMode, HardenedCornerArtifact],
+        corners: dict[CornerMode, CornerArtifact],
         cartography: CartographyArtifact,
-        arbiter: ArbiterArtifact,
         **config: Any,
     ) -> TransformedFrameArtifact:
         pred = self.best(
             primary_predicate=selection.primary_predicate.text,
-            hardened_corners_json=_json_dump({k.value: v.model_dump() for k, v in corners.items()}),
+            corners_json=_json_dump({k.value: v.model_dump() for k, v in corners.items()}),
             cartography_json=cartography.model_dump_json(),
-            arbiter_json=arbiter.model_dump_json(),
             evaluation_criteria=distilled.evaluation_criteria,
             novelty_criteria=distilled.novelty_criteria,
             **({"config": config} if config else {}),
@@ -353,86 +285,6 @@ class TransformFrameModule(dspy.Module):
             boundary_conditions=list(pred.boundary_conditions),
             failure_modes=list(pred.failure_modes),
             confidence=float(pred.confidence),
-        )
-
-
-class DomainAdaptModule(dspy.Module):
-    def __init__(self):
-        super().__init__()
-        self.write = dspy.Predict(AdaptWritingSignature)
-        self.code = dspy.ChainOfThought(AdaptCodingSignature)
-        self.research = dspy.ChainOfThought(AdaptResearchSignature)
-        self.plan = dspy.Predict(AdaptPlanningSignature)
-
-    def forward(
-        self,
-        frame: TransformedFrameArtifact,
-        cartography: CartographyArtifact,
-        **config: Any,
-    ) -> tuple[WritingAdapterArtifact, CodingAdapterArtifact, ResearchAdapterArtifact, PlanningAdapterArtifact]:
-        summary = cartography_summary(cartography)
-        kwargs = {"config": config} if config else {}
-        writing = self.write(
-            transformed_predicate=frame.transformed_predicate,
-            transformed_frame=frame.transformed_frame,
-            cartography_summary=summary,
-            **kwargs,
-        )
-        coding = self.code(
-            transformed_predicate=frame.transformed_predicate,
-            transformed_frame=frame.transformed_frame,
-            cartography_summary=summary,
-            **kwargs,
-        )
-        research = self.research(
-            transformed_predicate=frame.transformed_predicate,
-            transformed_frame=frame.transformed_frame,
-            cartography_summary=summary,
-            **kwargs,
-        )
-        planning = self.plan(
-            transformed_predicate=frame.transformed_predicate,
-            transformed_frame=frame.transformed_frame,
-            cartography_summary=summary,
-            **kwargs,
-        )
-        return (
-            WritingAdapterArtifact(
-                central_claim=writing.central_claim,
-                rival_readings=list(writing.rival_readings),
-                tension_map=list(writing.tension_map),
-                outline=list(writing.outline),
-                voice_options=list(writing.voice_options),
-                stress_test=list(writing.stress_test),
-                revision_plan=list(writing.revision_plan),
-            ),
-            CodingAdapterArtifact(
-                architecture=coding.architecture,
-                modules=list(coding.modules),
-                interfaces=list(coding.interfaces),
-                state_model=coding.state_model,
-                verification_loop=list(coding.verification_loop),
-                tests=list(coding.tests),
-                failure_modes=list(coding.failure_modes),
-                iteration_plan=list(coding.iteration_plan),
-            ),
-            ResearchAdapterArtifact(
-                competing_hypotheses=list(research.competing_hypotheses),
-                discriminating_experiments=list(research.discriminating_experiments),
-                evidence_agenda=list(research.evidence_agenda),
-                confound_map=list(research.confound_map),
-                interpretation_grid=list(research.interpretation_grid),
-                next_step_program=list(research.next_step_program),
-            ),
-            PlanningAdapterArtifact(
-                option_set=list(planning.option_set),
-                leverage_points=list(planning.leverage_points),
-                decision_thresholds=list(planning.decision_thresholds),
-                scenario_map=list(planning.scenario_map),
-                reversibility_map=list(planning.reversibility_map),
-                execution_phases=list(planning.execution_phases),
-                monitoring_plan=list(planning.monitoring_plan),
-            ),
         )
 
 

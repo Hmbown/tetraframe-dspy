@@ -46,7 +46,7 @@ def _build_program(tmp_path: Path, monkeypatch, *, parallel_corners: bool):
     def make_corner_forward(mode: CornerMode):
         def _forward(view, **config):
             call_counts[mode] += 1
-            base = sample.corner_drafts[mode].model_copy(deep=True)
+            base = sample.corners[mode].model_copy(deep=True)
             if mode in {CornerMode.P, CornerMode.NOT_P} and call_counts[mode] == 1:
                 return base.model_copy(
                     update={
@@ -65,21 +65,9 @@ def _build_program(tmp_path: Path, monkeypatch, *, parallel_corners: bool):
         module.forward = make_corner_forward(mode)  # type: ignore[method-assign]
         module.deepcopy = lambda module=module: module  # type: ignore[method-assign]
 
-    def harden_forward(distilled, selection, draft, **config):
-        return sample.hardened_corners[draft.corner_mode].model_copy(deep=True, update=draft.model_dump())
-
-    program.harden_corner.forward = harden_forward  # type: ignore[method-assign]
-    program.harden_corner.deepcopy = lambda: program.harden_corner  # type: ignore[method-assign]
     program.cartograph.forward = lambda corners, **config: sample.cartography.model_copy(deep=True)  # type: ignore[method-assign]
-    program.arbitrate.forward = lambda corners, cartography, **config: sample.arbiter.model_copy(deep=True)  # type: ignore[method-assign]
     program.transform.forward = (  # type: ignore[method-assign]
-        lambda distilled, selection, corners, cartography, arbiter, **config: sample.transformed_frame.model_copy(deep=True)
-    )
-    program.domain_adapt.forward = lambda frame, cartography, **config: (  # type: ignore[method-assign]
-        sample.writing.model_copy(deep=True),
-        sample.coding.model_copy(deep=True),
-        sample.research.model_copy(deep=True),
-        sample.planning.model_copy(deep=True),
+        lambda distilled, selection, corners, cartography, **config: sample.transformed_frame.model_copy(deep=True)
     )
     program.verify.forward = lambda run: sample.verification.model_copy(deep=True)  # type: ignore[method-assign]
     return program
@@ -95,9 +83,9 @@ def test_sequential_pipeline_retries_collapsed_corners_and_writes_single_trace_f
     assert artifact.corner_inputs[CornerMode.BOTH].anti_collapse_hint == ""
     assert artifact.corner_inputs[CornerMode.NEITHER].anti_collapse_hint == ""
 
-    stage2_attempts = [trace for trace in artifact.traces if trace.stage_name.startswith("stage2.generate")]
+    stage2_attempts = [trace for trace in artifact.traces if trace.stage_name.startswith("stage2.corner")]
     assert any(trace.attempt == 1 and trace.retry_reason == "near-duplicate corners detected" for trace in stage2_attempts)
-    assert any(trace.stage_name == "stage2.generate.P" and trace.attempt == 2 for trace in stage2_attempts)
+    assert any(trace.stage_name == "stage2.corner.P" and trace.attempt == 2 for trace in stage2_attempts)
 
     trace_path = tmp_path / "traces" / "run_integration.jsonl"
     assert trace_path.exists()
@@ -119,13 +107,13 @@ def test_async_pipeline_uses_randomized_order_and_selective_retry_hints(tmp_path
     stage2_attempt1 = [
         trace.stage_name
         for trace in artifact.traces
-        if trace.stage_name.startswith("stage2.generate") and trace.attempt == 1
+        if trace.stage_name.startswith("stage2.corner") and trace.attempt == 1
     ]
     assert stage2_attempt1 == [
-        "stage2.generate.neither",
-        "stage2.generate.both",
-        "stage2.generate.not-P",
-        "stage2.generate.P",
+        "stage2.corner.neither",
+        "stage2.corner.both",
+        "stage2.corner.not-P",
+        "stage2.corner.P",
     ]
     assert artifact.corner_inputs[CornerMode.P].anti_collapse_hint
     assert artifact.corner_inputs[CornerMode.NOT_P].anti_collapse_hint

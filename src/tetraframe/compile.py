@@ -91,7 +91,7 @@ class Compiler:
             program.corner_generators[mode] = compiled
             freeze(program.corner_generators[mode])
 
-        # Stage 6: Transformation. Use GEPA because it can consume textual feedback tied to traces.
+        # Stage 4: Transformation. Use GEPA because it can consume textual feedback tied to traces.
         transformer_optimizer = GEPA(
             metric=gepa_feedback_metric,
             auto="light",

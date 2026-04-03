@@ -159,7 +159,12 @@ class CornerInputView(BaseModel):
     anti_collapse_hint: str = ""
 
 
-class CornerDraftArtifact(BaseModel):
+class CornerArtifact(BaseModel):
+    """A fully generated and hardened corner position.
+
+    Corner generation and hardening are a single step: the model generates the
+    position, self-critiques, patches weaknesses, and reports confidence in one pass.
+    """
     corner_mode: CornerMode
     core_claim: str
     assumptions: list[str]
@@ -173,13 +178,24 @@ class CornerDraftArtifact(BaseModel):
     validity_basis_explanation: str
     replacement_predicate: str = ""
     replacement_frame: str = ""
+    # Hardening fields (produced in the same generation pass)
+    internal_attack: list[str] = Field(default_factory=list)
+    patched_claim: str = ""
+    patched_assumptions: list[str] = Field(default_factory=list)
+    clarified_scope_conditions: list[str] = Field(default_factory=list)
+    confidence_boundaries: list[str] = Field(default_factory=list)
+    minimal_falsifiers: list[str] = Field(default_factory=list)
+    tightened_language: str = ""
+    unresolved_weaknesses: list[str] = Field(default_factory=list)
+    confidence_score: float = 0.5
+    still_valid_after_hardening: bool = True
+    invalidity_reason: str = ""
 
     @model_validator(mode="after")
-    def validate_corner_specifics(self) -> "CornerDraftArtifact":
+    def validate_corner_specifics(self) -> "CornerArtifact":
         if self.corner_mode == CornerMode.BOTH:
             allowed = {x.value for x in BothBasis}
             if self.validity_basis_label not in allowed:
-                # Try fuzzy match before raising
                 matched = _fuzzy_enum_match(self.validity_basis_label, allowed)
                 if matched:
                     self.validity_basis_label = matched
@@ -195,21 +211,15 @@ class CornerDraftArtifact(BaseModel):
                     raise ValueError(f"neither corner requires one of {sorted(allowed)}")
             if not self.replacement_predicate.strip() and not self.replacement_frame.strip():
                 raise ValueError("neither corner requires a replacement predicate or frame")
+        # Default patched_claim to core_claim if not provided
+        if not self.patched_claim:
+            self.patched_claim = self.core_claim
         return self
 
 
-class HardenedCornerArtifact(CornerDraftArtifact):
-    internal_attack: list[str]
-    patched_claim: str
-    patched_assumptions: list[str]
-    clarified_scope_conditions: list[str]
-    confidence_boundaries: list[str]
-    minimal_falsifiers: list[str]
-    tightened_language: str
-    unresolved_weaknesses: list[str]
-    confidence_score: float
-    still_valid_after_hardening: bool = True
-    invalidity_reason: str = ""
+# Backward compatibility aliases
+CornerDraftArtifact = CornerArtifact
+HardenedCornerArtifact = CornerArtifact
 
 
 class PairwiseRelationArtifact(BaseModel):
@@ -250,6 +260,11 @@ class EvidenceDiscriminatorArtifact(_CoercingBaseModel):
 
 
 class CartographyArtifact(BaseModel):
+    """Cross-corner analysis: pairwise relations, maps, and arbiter judgments.
+
+    Cartography and arbitration are a single stage. The model maps relationships
+    between corners, produces fair reconstructions, and writes arbiter notes.
+    """
     pairwise_relations: list[PairwiseRelationArtifact]
     contradiction_map: list[str]
     complementarity_map: list[str]
@@ -261,6 +276,11 @@ class CartographyArtifact(BaseModel):
     reversible_implications: list[str]
     irreversible_implications: list[str]
     structural_miss_map: dict[str, str]
+    # Arbiter fields (produced in the same cartography pass)
+    reconstructions: list[CornerReconstructionArtifact] = Field(default_factory=list)
+    dissolution: list[str] = Field(default_factory=list)
+    transformation: list[str] = Field(default_factory=list)
+    arbiter_notes: str = ""
 
 
 class CornerReconstructionArtifact(_CoercingBaseModel):
@@ -281,15 +301,16 @@ class CornerReconstructionArtifact(_CoercingBaseModel):
         return "P"
 
 
+# Backward compatibility alias
 class ArbiterArtifact(BaseModel):
-    reconstructions: list[CornerReconstructionArtifact]
-    opposition: list[str]
-    contradiction: list[str]
-    complementarity: list[str]
-    paradox: list[str]
-    dissolution: list[str]
-    transformation: list[str]
-    arbiter_notes: str
+    reconstructions: list[CornerReconstructionArtifact] = Field(default_factory=list)
+    opposition: list[str] = Field(default_factory=list)
+    contradiction: list[str] = Field(default_factory=list)
+    complementarity: list[str] = Field(default_factory=list)
+    paradox: list[str] = Field(default_factory=list)
+    dissolution: list[str] = Field(default_factory=list)
+    transformation: list[str] = Field(default_factory=list)
+    arbiter_notes: str = ""
 
 
 class TransformedFrameArtifact(BaseModel):
@@ -306,46 +327,6 @@ class TransformedFrameArtifact(BaseModel):
     confidence: float
 
 
-class WritingAdapterArtifact(BaseModel):
-    central_claim: str
-    rival_readings: list[str]
-    tension_map: list[str]
-    outline: list[str]
-    voice_options: list[str]
-    stress_test: list[str]
-    revision_plan: list[str]
-
-
-class CodingAdapterArtifact(BaseModel):
-    architecture: str
-    modules: list[str]
-    interfaces: list[str]
-    state_model: str
-    verification_loop: list[str]
-    tests: list[str]
-    failure_modes: list[str]
-    iteration_plan: list[str]
-
-
-class ResearchAdapterArtifact(BaseModel):
-    competing_hypotheses: list[str]
-    discriminating_experiments: list[str]
-    evidence_agenda: list[str]
-    confound_map: list[str]
-    interpretation_grid: list[str]
-    next_step_program: list[str]
-
-
-class PlanningAdapterArtifact(BaseModel):
-    option_set: list[str]
-    leverage_points: list[str]
-    decision_thresholds: list[str]
-    scenario_map: list[str]
-    reversibility_map: list[str]
-    execution_phases: list[str]
-    monitoring_plan: list[str]
-
-
 class VerificationMetricArtifact(BaseModel):
     score: float
     rationale: str
@@ -359,13 +340,9 @@ class VerificationReportArtifact(BaseModel):
     rigor_of_neither: VerificationMetricArtifact
     contradiction_honesty: VerificationMetricArtifact
     transformation_quality: VerificationMetricArtifact
-    actionability: VerificationMetricArtifact
     robustness: VerificationMetricArtifact
     fake_novelty_risk: VerificationMetricArtifact
     slop_risk: VerificationMetricArtifact
-    domain_adapter_feedback: VerificationMetricArtifact = Field(
-        default_factory=lambda: VerificationMetricArtifact(score=0.0, rationale="not computed", passed=False)
-    )
     aggregate_score: float
     retry_recommendations: list[str] = Field(default_factory=list)
 
@@ -398,17 +375,31 @@ class TetraFrameRunArtifact(BaseModel):
     distilled_seed: DistilledSeedArtifact
     predicate_selection: PredicateSelectionArtifact
     corner_inputs: dict[CornerMode, CornerInputView]
-    corner_drafts: dict[CornerMode, CornerDraftArtifact]
-    hardened_corners: dict[CornerMode, HardenedCornerArtifact]
+    corners: dict[CornerMode, CornerArtifact]
     cartography: CartographyArtifact
-    arbiter: ArbiterArtifact
     transformed_frame: TransformedFrameArtifact
-    writing: WritingAdapterArtifact
-    coding: CodingAdapterArtifact
-    research: ResearchAdapterArtifact
-    planning: PlanningAdapterArtifact
     verification: VerificationReportArtifact | None = None
     traces: list[StageTraceArtifact] = Field(default_factory=list)
+
+    @property
+    def corner_drafts(self) -> dict[CornerMode, CornerArtifact]:
+        """Backward compat alias."""
+        return self.corners
+
+    @property
+    def hardened_corners(self) -> dict[CornerMode, CornerArtifact]:
+        """Backward compat alias."""
+        return self.corners
+
+    @property
+    def arbiter(self) -> ArbiterArtifact:
+        """Backward compat: arbiter fields now live on cartography."""
+        return ArbiterArtifact(
+            reconstructions=self.cartography.reconstructions,
+            dissolution=self.cartography.dissolution,
+            transformation=self.cartography.transformation,
+            arbiter_notes=self.cartography.arbiter_notes,
+        )
 
     def to_json(self, path: str | Path) -> None:
         path = Path(path)
