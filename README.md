@@ -289,11 +289,11 @@ The fake novelty flag fired on the transformed predicate — the verifier flagge
 
 ```yaml
 model:
-  runtime_model: openai/gpt-4.1-mini
-  reflection_model: openai/gpt-4.1
+  runtime_model: openai/gpt-5.4-mini
+  reflection_model: openai/gpt-5.4
   backend:
     provider: openai          # openai | anthropic | openrouter | openai-compatible | claude-code | codex | opencode
-    model: gpt-4.1-mini
+    model: gpt-5.4-mini
     base_url: null            # for openai-compatible endpoints
     api_key_env: null         # env var holding the API key
     timeout: 120.0

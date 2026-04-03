@@ -1,9 +1,9 @@
 model:
-  runtime_model: openai/gpt-4.1-mini
-  reflection_model: openai/gpt-4.1
+  runtime_model: openai/gpt-5.4-mini
+  reflection_model: openai/gpt-5.4
   backend:
     provider: openai
-    model: gpt-4.1-mini
+    model: gpt-5.4-mini
     # api_key_env defaults to OPENAI_API_KEY
     timeout: 120.0
 program:
