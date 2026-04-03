@@ -3,66 +3,80 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-A reasoning harness built on [DSPy](https://dspy.ai/) for four-corner (tetralemmatic) analysis of hard questions. Best suited for strategic decisions, design tradeoffs, and framing problems where binary pro/con thinking collapses into compromise.
+A [DSPy](https://dspy.ai/) program for hard decisions that break ordinary pro/con reasoning.
+
+TetraFrame generates four isolated positions on a predicate — P, not-P, both, and neither — maps where they conflict or collapse, and produces a synthesis that preserves real tension instead of flattening it into a generic middle answer.
+
+Use it for strategic decisions, design tradeoffs, and reframing problems where the original question may itself be wrong.
 
 ```bash
 pip install -e ".[dev]"
 tetraframe run "Your question or problem statement" --config configs/base.yaml
 ```
 
-## How DSPy is used
+## Why four corners instead of pro/con
 
-TetraFrame is a DSPy program. Each pipeline stage is a `dspy.Module` with typed `dspy.Signature` classes that define exact input/output fields. The LLM never gets a freeform prompt — DSPy's adapter layer handles formatting, parsing, and retry.
+Standard thesis/antithesis reasoning discards structure too early: state a position, react against it, compromise. The result inherits weaknesses from both sides.
 
-What this buys you:
+TetraFrame uses a tetralemmatic frame — four corners instead of two. The idea has roots in Buddhist logic (Nāgārjuna, ~2nd century CE), but TetraFrame uses it as a practical reasoning structure, not a historical reconstruction.
 
-- **Compilation.** The whole pipeline is optimizable with DSPy's prompt optimizers — `BootstrapFewShot` for early stages, `MIPROv2` for corners, `GEPA` for the transformer. Compilation tunes the prompts against your benchmark data without changing any code.
-- **`ChainOfThought` and `BestOfN`.** Corner generation uses `ChainOfThought` for structured reasoning. The transform stage uses `BestOfN` with a reward function that penalizes compromise language — it samples 3 candidates and picks the one that scores highest on non-averaging transformation.
-- **Backend agnosticism.** DSPy's `LM` abstraction means the same pipeline runs on OpenAI, Anthropic, OpenRouter, or local CLI tools (Claude Code, Codex, OpenCode) without changing signatures or modules.
+TetraFrame enforces several constraints:
 
-If you've used DSPy before: `TetraFrameProgram` is a `dspy.Module` with a `forward()` method. You can `save()`, `load()`, compile it, or nest it inside a larger DSPy program.
-
-## What is a tetralemma?
-
-A tetralemma (Sanskrit: catuṣkoṭi) is a four-cornered logical structure from Buddhist logic, developed most fully by Nāgārjuna (~2nd century CE). Where binary reasoning gives you two options —
-
-```
-A or not-A
-```
-
-— a tetralemma gives you four:
-
-```
-P · not-P · Both · Neither
-```
-
-Binary framing tends to collapse into compromise — state a thesis, react against it, split the difference. A tetralemma sidesteps this by exploring all four corners independently before any synthesis happens.
-
-TetraFrame enforces this structurally:
-
-- **P** and **not-P** are generated in isolation from each other
-- **Both** must produce two distinct positions that hold P and not-P simultaneously — not a compromise
-- **Neither** must reject the original framing and propose a replacement predicate
-- No corner can see the other corners until the cartography stage
+- **P** and **not-P** are generated independently — no corner can see any other.
+- **Both** must articulate a coherent stance in which P and not-P jointly hold under a clarified frame. It may not split the difference.
+- **Neither** must reject the original predicate and propose a better axis of analysis.
+- No corner can inspect the others until relationship mapping.
 
 ## The pipeline
 
-TetraFrame takes a seed question, decomposes it into four corners, maps their relationships, and synthesizes a result that isn't a compromise between them.
-
 ```
-Seed ─▶ Predicate ─▶ Four Corners ─▶ Cartography ─▶ Transform ─▶ Verify
+Seed ─▶ Predicate ─▶ Four Corners ─▶ Mapping ─▶ Transform ─▶ Verify
 ```
-
-Six stages, run in sequence:
 
 | # | Stage | Does |
 |---|-------|------|
-| 1 | Seed Distill | Extracts stakes, constraints, unknowns, and hidden assumptions from the input |
-| 2 | Predicate Selection | Picks the operational predicate the four corners will reason about |
-| 3 | Four Corners | Generates and hardens P, not-P, Both, Neither — each in complete isolation, self-critiqued in one pass |
-| 4 | Cartography | Maps contradictions, complementarities, and collapse signals; produces fair reconstructions and arbiter notes |
-| 5 | Transform | Synthesizes an output from all four corners without averaging them |
-| 6 | Verify | Final quality checks against compromise language and fake novelty |
+| 1 | Problem Distillation | Extract stakes, constraints, unknowns, and hidden assumptions from the seed |
+| 2 | Predicate Selection | Choose the operative predicate the corners will reason over |
+| 3 | Four Corners | Generate P, not-P, both, neither in isolation, with self-critique |
+| 4 | Relationship Mapping | Identify contradiction, complementarity, collapse risk, and reframing opportunities across corners |
+| 5 | Transform | Produce a synthesis that preserves useful tension instead of averaging it away |
+| 6 | Verify | Score for collapse, unsupported reframing, contradiction handling, and tension preservation |
+
+## Example outcome
+
+**Seed:**
+> Is code review by AI more effective when it operates on diffs or full files?
+
+**Corners:**
+- **P:** Diff-mode achieves comparable defect detection at lower token cost for localized changes — the diff contains nearly all the context needed for single-function bugs.
+- **not-P:** Diff-mode systematically misses context-dependent defects — cross-module invariants, regression risks, and type contract violations require full-file visibility.
+- **Both:** Both hold at different scales. Below ~30 LOC in a single module, diffs are sufficient. Above 50 LOC or across module boundaries, full-file context provides statistically significant recall gains.
+- **Neither:** The original predicate is misframed. Input context mode is a secondary variable — prompt design, model capability, and defect-type specificity are likely stronger determinants of review quality.
+
+**Synthesis:**
+> Review quality is governed by context-budget-to-defect-dependence fit: diff-mode provides sufficient context for defects local to changed lines, but cross-boundary defects require full-file or richer context regardless of prompt optimization. The right question is not "diffs or full files" but "for which defect categories does input mode become the binding constraint?"
+
+Current CLI-backed runs are intended for offline reasoning and may take tens of minutes on hard prompts.
+
+## When not to use TetraFrame
+
+TetraFrame is overkill for:
+- routine factual QA
+- latency-sensitive chat
+- narrow coding bugs with clear ground truth
+- tasks where decomposition adds cost but not signal
+
+It is best used when the frame itself may be wrong, when multiple incompatible positions each contain real signal, or when ordinary pro/con reasoning collapses too early.
+
+## How DSPy fits
+
+TetraFrame is implemented as a DSPy program. Each stage is a `dspy.Module` with typed `dspy.Signature` interfaces — the pipeline is specified as structured inputs and outputs rather than hand-written prompt chains.
+
+DSPy handles prompt construction, parsing, and retries. Because the program is modular and typed, it can be compiled against benchmark data using `BootstrapFewShot`, `MIPROv2`, or `GEPA` — saved and reloaded, nested inside larger DSPy programs, and run across multiple LM backends without changing the pipeline structure.
+
+Corner generation uses `ChainOfThought`. The transform stage uses `BestOfN` to prefer candidates that preserve irreducible tension and avoid collapsing distinct positions into a generic averaged answer.
+
+If you've used DSPy before: `TetraFrameProgram` is a `dspy.Module` with a `forward()` method.
 
 ## Install
 
@@ -86,7 +100,38 @@ Outputs:
 - `runs/latest/run.json` — full run artifact
 - `runs/traces/<run_id>.jsonl` — per-stage trace with timing and backend info
 
+## Python API
+
+```python
+from tetraframe.config import load_config
+from tetraframe.backends.factory import build_dspy_lm
+from tetraframe.pipeline import TetraFrameProgram, build_runtime_runner
+import tetraframe.dspy_compat as dspy
+
+cfg = load_config("configs/base.yaml")
+lm = build_dspy_lm(cfg)
+dspy.configure(lm=lm)
+
+program = TetraFrameProgram(cfg)
+runner = build_runtime_runner(program)
+result = runner.run("Your reasoning seed")
+result.to_json("runs/latest/run.json")
+```
+
 ## Backends
+
+TetraFrame can find backends automatically without a config file.
+
+```bash
+venv/bin/tetraframe discover        # show available tools
+venv/bin/tetraframe run "seed"      # auto-select best available
+venv/bin/tetraframe run "seed" --tool openai-api  # force a specific tool
+```
+
+Priority: Hermes pools > API backends with keys > CLI tools on PATH.
+
+<details>
+<summary><b>Backend details</b></summary>
 
 ### API backends
 
@@ -119,7 +164,7 @@ model:
 
 CLI backends run as subprocesses — slower, and the proxy warns when requested parameters can't be enforced.
 
-### Setting API keys
+### API keys
 
 ```bash
 export OPENAI_API_KEY="sk-..."
@@ -127,37 +172,23 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENROUTER_API_KEY="sk-or-..."
 ```
 
-### Auto-discovery
+</details>
 
-TetraFrame can find backends automatically without a config file.
+## Benchmark and compile
 
 ```bash
-venv/bin/tetraframe discover        # show available tools
-venv/bin/tetraframe run "seed"      # auto-select best available
-venv/bin/tetraframe run "seed" --tool openai-api  # force a specific tool
+venv/bin/tetraframe benchmark \
+  --config configs/base.yaml \
+  --dataset examples/benchmark_cases_test.jsonl \
+  --out runs/benchmarks/report.json
+
+venv/bin/tetraframe compile \
+  --config configs/compile.yaml \
+  --out runs/compiled_program.json
 ```
 
-Priority: Hermes pools > API backends with keys > CLI tools on PATH.
-
-## Python API
-
-```python
-from tetraframe.config import load_config
-from tetraframe.backends.factory import build_dspy_lm
-from tetraframe.pipeline import TetraFrameProgram, build_runtime_runner
-import tetraframe.dspy_compat as dspy
-
-cfg = load_config("configs/base.yaml")
-lm = build_dspy_lm(cfg)
-dspy.configure(lm=lm)
-
-program = TetraFrameProgram(cfg)
-runner = build_runtime_runner(program)
-result = runner.run("Your reasoning seed")
-result.to_json("runs/latest/run.json")
-```
-
-## Proxy
+<details>
+<summary><b>Proxy</b></summary>
 
 `tetraframe-proxy` exposes any configured backend as an OpenAI-compatible HTTP API.
 
@@ -181,24 +212,10 @@ curl http://127.0.0.1:8765/v1/chat/completions \
   -d '{"messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-The proxy returns `proxy_warnings` when a backend can't enforce `max_tokens`, `temperature`, or streaming.
+</details>
 
-## Benchmark and compile
-
-```bash
-# Benchmark against a dataset
-venv/bin/tetraframe benchmark \
-  --config configs/base.yaml \
-  --dataset examples/benchmark_cases_test.jsonl \
-  --out runs/benchmarks/report.json
-
-# Compile an optimized program
-venv/bin/tetraframe compile \
-  --config configs/compile.yaml \
-  --out runs/compiled_program.json
-```
-
-## Traces
+<details>
+<summary><b>Traces</b></summary>
 
 Each run writes a JSONL trace to `runs/traces/<run_id>.jsonl`. Rows include stage name, latency, backend info, and input/output digests.
 
@@ -213,91 +230,10 @@ for line in trace_path.read_text().splitlines()[:5]:
     print(row["stage_name"], row["backend_name"], row["latency_ms"])
 ```
 
-## Example run
-
-The following is from a real run where TetraFrame analyzed its own pipeline. The seed asked whether TetraFrame's multi-stage architecture produces genuine reasoning improvements or sophisticated restatement. Backend: Claude Sonnet 4 via CLI.
-
-<details>
-<summary><b>Stage 1 — Seed Distill</b> (61s)</summary>
-
-Extracts structure from the raw seed. Output includes stakes, constraints, unknowns, hidden assumptions, and candidate predicates.
-
-**Normalized seed:** TetraFrame is a multi-stage LLM call reasoning pipeline built on tetralemmatic decomposition. It faces three separable problems: (A) an unresolved architectural direction — whether to consolidate calls for cost/latency or deepen stage isolation for quality; (B) a verification gap — the current suite detects slop heuristically but cannot distinguish genuine dialectical transformation from sophisticated restatement; and (C) a closed-loop gap — downstream consumers have no signal path back to upstream stages.
-
-**Example hidden assumption:** That the current stage count is the correct granularity — rather than an artifact of how the system was initially built.
-
 </details>
 
 <details>
-<summary><b>Stage 2 — Predicate Selection</b> (152s)</summary>
-
-Picks the operational predicate the four corners will reason about.
-
-**Selected predicate:** TetraFrame's multi-stage pipeline produces outputs that are measurably distinguishable from sophisticated restatement of their inputs, as determined by a cross-validated binary classifier operating on embedding distance, structural novelty, and logical form change dimensions with precision and recall above 0.80 on held-out labeled examples.
-
-**Rationale (excerpt):** The primary predicate was selected over the architectural consolidation question because it is the stated prerequisite: Problem B must be resolved before Problem A can be meaningfully addressed. A predicate about consolidation would produce a tetralemma whose corners all reduce to "we don't know yet" until a quality metric exists — that is a degenerate tetralemma.
-
-</details>
-
-<details>
-<summary><b>Stage 3 — Four Corners</b> (P: 63s, not-P: 129s, Both: 218s, Neither: 306s)</summary>
-
-Each corner is generated and self-critiqued in isolation — no corner can see the others.
-
-**P:** TetraFrame's pipeline produces outputs measurably distinguishable from sophisticated restatement because tetralemmatic decomposition mechanically requires logical form change, structural novelty, and semantic distance as preconditions for stage completion — not as emergent side effects.
-
-**not-P:** The predicate cannot be validated by the instrument it proposes, because the instrument requires as input the very judgment whose absence motivates the predicate. The three classifier dimensions measure visible text change, not dialectical transformation.
-
-**Both:** TetraFrame's pipeline both is and is not measurably distinguishable from sophisticated restatement: it IS at the formal-structural measurement layer where a classifier will reliably exceed 0.80; it is NOT at the semantic-functional layer where dialectical transformation is defined to matter — because classifier success at the structural layer does not confirm that genuine tetralemmatic transformation occurred.
-
-**Neither:** The transformation/restatement binary is a false discretization of a continuous, domain-relative, evaluator-relative gradient. The predicate's operationalization measures the detectability of a proxy, not the existence of the underlying construct.
-
-</details>
-
-<details>
-<summary><b>Stage 4 — Cartography</b> (1034s)</summary>
-
-First stage where all four corners are visible together. Maps pairwise relations, produces fair reconstructions, and writes arbiter notes.
-
-**Example contradiction (P × not-P):** P's sufficiency claim — classifier > 0.80 on human-labeled examples constitutes validation of genuine transformation — directly contradicts not-P's structural circularity objection: a classifier trained on direct transformation/restatement judgments cannot validate the judgment it is trained to replace.
-
-**Arbiter notes (excerpt):** The four-corner analysis is not primarily a debate between competing hypotheses about TetraFrame. It is a progressively fine-grained examination of what kind of evidence is meaningful at what ontological altitude. The only genuinely adversarial relation is P × not-P on the actionable empirical question.
-
-</details>
-
-<details>
-<summary><b>Stage 5 — Transform</b> (379s)</summary>
-
-Synthesizes a single output from all four corners without averaging them.
-
-**Transformed predicate:** TetraFrame's multi-stage pipeline produces a per-stage measurable effect-size lift on a pre-registered continuous transformation rubric relative to a compute-matched single-call baseline, where: (1) the rubric dimensions are validated against at least one domain with formal transformation criteria before any pipeline scoring begins; (2) the lift is reported per-domain and per-stage to expose whether the corner-switching structure rather than token budget is the operative causal variable.
-
-**Why it's not an average:** P* does not retain the binary frame with additional checks, does not soften P's sufficiency claim to a sufficiency claim with caveats, and does not accept not-P's rejection while proposing a weaker affirmation. The transformation is structural — replacing the binary classification frame entirely with a continuous, construct-validated, stage-decomposed attribution frame.
-
-</details>
-
-<details>
-<summary><b>Stage 6 — Verify</b> (aggregate: 0.901)</summary>
-
-Runs quality checks across 9 metrics. This run scored:
-
-| Metric | Score | Pass |
-|---|---|---|
-| Branch independence | 1.000 | yes |
-| Divergence quality | 0.904 | yes |
-| Rigor of Both | 1.000 | yes |
-| Rigor of Neither | 0.938 | yes |
-| Contradiction honesty | 1.000 | yes |
-| Transformation quality | 1.000 | yes |
-| Robustness | 0.879 | yes |
-| Fake novelty risk | 0.400 | **no** |
-| Slop risk | 0.884 | yes |
-
-The fake novelty flag fired on the transformed predicate — the verifier flagged unsupported new concepts in P*. This is a real check, not a false positive: the transformed predicate introduced terminology ("construct-validated rubric", "stage-decomposed attribution") that wasn't grounded in the corners' evidence base.
-
-</details>
-
-## Config reference
+<summary><b>Config reference</b></summary>
 
 ```yaml
 model:
@@ -319,7 +255,10 @@ model:
   reflection_backend: null    # optional separate backend for compilation
 ```
 
-## Project structure
+</details>
+
+<details>
+<summary><b>Project structure</b></summary>
 
 ```
 src/tetraframe/
@@ -353,6 +292,8 @@ src/tetraframe/
   benchmarks/
     harness.py             # Benchmark runner
 ```
+
+</details>
 
 ## License
 
